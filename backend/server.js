@@ -20,6 +20,7 @@ app.use(cors({
 }));
 
 app.use('/api/auth', require('./routes/routes.auth'));
+app.use('/api/threads', require('./routes/threads'));
 
 app.get('/health', (req, res) => {
   res.status(200).json({
