@@ -19,8 +19,20 @@ const threadSchema = new mongoose.Schema(
     },
     images: [
       {
-        url: String,
-        publicId: String, // Cloudinary public ID for deletion
+        url: {
+          type: String,
+          required: true,
+        },
+        publicId: {
+          type: String,
+          required: true,
+        },
+        thumbnail: {
+          type: String, // Optimized smaller version
+        },
+        width: Number,
+        height: Number,
+        format: String,
       },
     ],
     likes: [
@@ -29,12 +41,10 @@ const threadSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
-    // Store comment count for performance
     commentCount: {
       type: Number,
       default: 0,
     },
-    // For soft delete (optional - keeps data for moderation)
     isDeleted: {
       type: Boolean,
       default: false,

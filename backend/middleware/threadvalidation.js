@@ -17,7 +17,33 @@ exports.createThreadValidation = [
   body('images')
     .optional()
     .isArray()
-    .withMessage('Images must be an array'),
+    .withMessage('Images must be an array')
+    .custom((images) => {
+      if (images.length > 4) {
+        throw new Error('Maximum 4 images allowed');
+      }
+      return true;
+    }),
+  
+  body('images.*.url')
+    .if(body('images').exists())
+    .trim()
+    .notEmpty()
+    .withMessage('Image URL is required')
+    .isURL()
+    .withMessage('Invalid image URL'),
+  
+  body('images.*.publicId')
+    .if(body('images').exists())
+    .trim()
+    .notEmpty()
+    .withMessage('Image publicId is required'),
+  
+  body('images.*.thumbnail')
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage('Invalid thumbnail URL'),
 ];
 
 // Validation for thread ID parameter

@@ -1,6 +1,7 @@
 const Thread = require('../models/Thread');
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
 
 // @desc    Create a new thread
 // @route   POST /api/threads
@@ -351,13 +352,21 @@ exports.deleteThread = async (req, res) => {
       });
     }
 
+    // Delete images from Cloudinary if they exist
+    if (thread.images && thread.images.length > 0) {
+      const publicIds = thread.images.map((img) => img.publicId);
+      try {
+        await deleteMultipleFromCloudinary(publicIds);
+        console.log(`✅ Deleted ${publicIds.length} images from Cloudinary`);
+      } catch (cloudinaryError) {
+        console.error('⚠️ Cloudinary deletion error:', cloudinaryError);
+        // Continue with thread deletion even if Cloudinary fails
+      }
+    }
+
     // Soft delete (mark as deleted instead of removing)
     thread.isDeleted = true;
     await thread.save();
-
-    // OR hard delete (completely remove):
-    // await Thread.findByIdAndDelete(threadId);
-    // If using Cloudinary, delete images here too
 
     res.status(200).json({
       success: true,
