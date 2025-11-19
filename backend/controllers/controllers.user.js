@@ -15,7 +15,7 @@ const formatThread = (thread, userId = null) => {
     commentCount: thread.commentCount,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
-    type: 'thread', // Add type for frontend
+    type: 'thread',
   };
 
   if (!thread.isAnonymous && thread.author) {
@@ -60,7 +60,7 @@ const formatComment = (comment, userId = null) => {
     isDeleted: comment.isDeleted,
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
-    type: 'comment', // Add type for frontend
+    type: 'comment',
   };
 
   if (!comment.isDeleted && !comment.isAnonymous && comment.author) {
@@ -85,7 +85,6 @@ const formatComment = (comment, userId = null) => {
     };
   }
 
-  // Include thread info for context
   if (comment.threadId) {
     formatted.thread = {
       id: comment.threadId._id,
@@ -93,7 +92,6 @@ const formatComment = (comment, userId = null) => {
     };
   }
 
-  // Include parent comment info if it's a reply
   if (comment.parentCommentId) {
     formatted.parentComment = {
       id: comment.parentCommentId._id,
@@ -112,18 +110,30 @@ const formatComment = (comment, userId = null) => {
   return formatted;
 };
 
+// Helper to check if two users have blocked each other
+const areUsersBlocked = async (userId1, userId2) => {
+  const [user1, user2] = await Promise.all([
+    User.findById(userId1).select('blockedUsers'),
+    User.findById(userId2).select('blockedUsers'),
+  ]);
+
+  const user1BlockedUser2 = user1?.blockedUsers.some((id) => id.toString() === userId2);
+  const user2BlockedUser1 = user2?.blockedUsers.some((id) => id.toString() === userId1);
+
+  return user1BlockedUser2 || user2BlockedUser1;
+};
+
 // @desc    Get user activity (Home tab - threads + comments)
 // @route   GET /api/users/:userId/activity?type=all
 // @access  Public
 exports.getUserActivity = async (req, res) => {
   try {
     const { userId } = req.params;
-    const type = req.query.type || 'all'; // all, threads, replies
+    const type = req.query.type || 'all';
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Validate user ID
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
@@ -131,7 +141,17 @@ exports.getUserActivity = async (req, res) => {
       });
     }
 
-    // Check if user exists
+    // Check if users have blocked each other
+    if (req.user) {
+      const isBlocked = await areUsersBlocked(req.user.id, userId);
+      if (isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot view this user profile',
+        });
+      }
+    }
+
     const user = await User.findById(userId).select(
       'username profilePic rollNumber department batch bio followers following'
     );
@@ -147,7 +167,6 @@ exports.getUserActivity = async (req, res) => {
     let total = 0;
 
     if (type === 'threads' || type === 'all') {
-      // Get public threads only
       const threads = await Thread.find({
         author: userId,
         isAnonymous: false,
@@ -161,7 +180,6 @@ exports.getUserActivity = async (req, res) => {
     }
 
     if (type === 'replies' || type === 'all') {
-      // Get all comments (not deleted)
       const comments = await Comment.find({
         author: userId,
         isDeleted: false,
@@ -175,12 +193,19 @@ exports.getUserActivity = async (req, res) => {
       activity.push(...comments.map((c) => formatComment(c, req.user?.id)));
     }
 
-    // Sort combined activity by date
     activity.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    // Paginate
     total = activity.length;
     const paginatedActivity = activity.slice(skip, skip + limit);
+
+    // Calculate mutual follow status
+    const isFollowing = req.user
+      ? user.followers.some((f) => f.toString() === req.user.id)
+      : false;
+
+    const isMutual = req.user && isFollowing
+      ? user.following.some((f) => f.toString() === req.user.id)
+      : false;
 
     res.status(200).json({
       success: true,
@@ -198,9 +223,8 @@ exports.getUserActivity = async (req, res) => {
         bio: user.bio,
         followersCount: user.followers.length,
         followingCount: user.following.length,
-        isFollowing: req.user
-          ? user.followers.some((f) => f.toString() === req.user.id)
-          : false,
+        isFollowing,
+        isMutual,
       },
       activity: paginatedActivity,
     });
@@ -214,6 +238,615 @@ exports.getUserActivity = async (req, res) => {
   }
 };
 
+// @desc    Follow a user
+// @route   POST /api/users/:userId/follow
+// @access  Private
+exports.followUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    // Cannot follow yourself
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot follow yourself',
+      });
+    }
+
+    // Check if users have blocked each other
+    const isBlocked = await areUsersBlocked(currentUserId, userId);
+    if (isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot follow this user',
+      });
+    }
+
+    const [currentUser, targetUser] = await Promise.all([
+      User.findById(currentUserId),
+      User.findById(userId),
+    ]);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Check if already following
+    const alreadyFollowing = currentUser.following.includes(userId);
+
+    if (alreadyFollowing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Already following this user',
+      });
+    }
+
+    // Add to following and followers
+    currentUser.following.push(userId);
+    targetUser.followers.push(currentUserId);
+
+    await Promise.all([currentUser.save(), targetUser.save()]);
+
+    // Check if mutual
+    const isMutual = targetUser.following.includes(currentUserId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully followed user',
+      isMutual,
+    });
+  } catch (error) {
+    console.error('Follow user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while following user',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Unfollow a user
+// @route   DELETE /api/users/:userId/unfollow
+// @access  Private
+exports.unfollowUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot unfollow yourself',
+      });
+    }
+
+    const [currentUser, targetUser] = await Promise.all([
+      User.findById(currentUserId),
+      User.findById(userId),
+    ]);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Check if following
+    const isFollowing = currentUser.following.includes(userId);
+
+    if (!isFollowing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Not following this user',
+      });
+    }
+
+    // Remove from following and followers
+    currentUser.following = currentUser.following.filter(
+      (id) => id.toString() !== userId
+    );
+    targetUser.followers = targetUser.followers.filter(
+      (id) => id.toString() !== currentUserId
+    );
+
+    await Promise.all([currentUser.save(), targetUser.save()]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully unfollowed user',
+    });
+  } catch (error) {
+    console.error('Unfollow user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while unfollowing user',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get user's followers
+// @route   GET /api/users/:userId/followers
+// @access  Public
+exports.getFollowers = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    // Check if blocked
+    if (req.user) {
+      const isBlocked = await areUsersBlocked(req.user.id, userId);
+      if (isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot view this user profile',
+        });
+      }
+    }
+
+    const user = await User.findById(userId)
+      .select('followers')
+      .populate({
+        path: 'followers',
+        select: 'username profilePic rollNumber department batch followers following',
+        options: {
+          skip,
+          limit,
+        },
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Format followers with follow status
+    const followers = user.followers.map((follower) => {
+      const isFollowing = req.user
+        ? follower.followers.some((id) => id.toString() === req.user.id)
+        : false;
+
+      const isMutual = req.user && isFollowing
+        ? follower.following.some((id) => id.toString() === req.user.id)
+        : false;
+
+      return {
+        id: follower._id,
+        username: follower.username,
+        profilePic: follower.profilePic,
+        rollNumber: follower.rollNumber,
+        department: follower.department,
+        batch: follower.batch,
+        followersCount: follower.followers.length,
+        followingCount: follower.following.length,
+        isFollowing,
+        isMutual,
+      };
+    });
+
+    const total = await User.findById(userId).select('followers');
+    const totalCount = total.followers.length;
+
+    res.status(200).json({
+      success: true,
+      count: followers.length,
+      total: totalCount,
+      page,
+      pages: Math.ceil(totalCount / limit),
+      followers,
+    });
+  } catch (error) {
+    console.error('Get followers error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching followers',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get user's following
+// @route   GET /api/users/:userId/following
+// @access  Public
+exports.getFollowing = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    // Check if blocked
+    if (req.user) {
+      const isBlocked = await areUsersBlocked(req.user.id, userId);
+      if (isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot view this user profile',
+        });
+      }
+    }
+
+    const user = await User.findById(userId)
+      .select('following')
+      .populate({
+        path: 'following',
+        select: 'username profilePic rollNumber department batch followers following',
+        options: {
+          skip,
+          limit,
+        },
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const following = user.following.map((followedUser) => {
+      const isFollowing = req.user
+        ? followedUser.followers.some((id) => id.toString() === req.user.id)
+        : false;
+
+      const isMutual = req.user && isFollowing
+        ? followedUser.following.some((id) => id.toString() === req.user.id)
+        : false;
+
+      return {
+        id: followedUser._id,
+        username: followedUser.username,
+        profilePic: followedUser.profilePic,
+        rollNumber: followedUser.rollNumber,
+        department: followedUser.department,
+        batch: followedUser.batch,
+        followersCount: followedUser.followers.length,
+        followingCount: followedUser.following.length,
+        isFollowing,
+        isMutual,
+      };
+    });
+
+    const total = await User.findById(userId).select('following');
+    const totalCount = total.following.length;
+
+    res.status(200).json({
+      success: true,
+      count: following.length,
+      total: totalCount,
+      page,
+      pages: Math.ceil(totalCount / limit),
+      following,
+    });
+  } catch (error) {
+    console.error('Get following error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching following',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Search users
+// @route   GET /api/users/search?q=query
+// @access  Public
+exports.searchUsers = async (req, res) => {
+  try {
+    const query = req.query.q;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query is required',
+      });
+    }
+
+    // Build search criteria
+    const searchCriteria = {
+      $or: [
+        { username: { $regex: query, $options: 'i' } },
+        { rollNumber: { $regex: query, $options: 'i' } },
+        { department: { $regex: query, $options: 'i' } },
+      ],
+    };
+
+    // If user is authenticated, exclude blocked users
+    if (req.user) {
+      const currentUser = await User.findById(req.user.id).select('blockedUsers');
+      const blockedByCurrentUser = currentUser.blockedUsers;
+
+      // Find users who blocked current user
+      const usersWhoBlockedMe = await User.find({
+        blockedUsers: req.user.id,
+      }).select('_id');
+
+      const blockedUserIds = [
+        ...blockedByCurrentUser,
+        ...usersWhoBlockedMe.map((u) => u._id),
+      ];
+
+      // Only exclude blocked users, NOT current user
+      if (blockedUserIds.length > 0) {
+        searchCriteria._id = { $nin: blockedUserIds };
+      }
+    }
+
+    const total = await User.countDocuments(searchCriteria);
+
+    const users = await User.find(searchCriteria)
+      .select('username profilePic rollNumber department batch followers following')
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const formattedUsers = users.map((user) => {
+      const isFollowing = req.user
+        ? user.followers.some((id) => id.toString() === req.user.id)
+        : false;
+
+      const isMutual = req.user && isFollowing
+        ? user.following.some((id) => id.toString() === req.user.id)
+        : false;
+
+      // Mark if this is the current user
+      const isCurrentUser = req.user ? user._id.toString() === req.user.id : false;
+
+      return {
+        id: user._id,
+        username: user.username,
+        profilePic: user.profilePic,
+        rollNumber: user.rollNumber,
+        department: user.department,
+        batch: user.batch,
+        followersCount: user.followers.length,
+        followingCount: user.following.length,
+        isFollowing,
+        isMutual,
+        isCurrentUser, // ✅ Added flag to indicate current user
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: formattedUsers.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      users: formattedUsers,
+    });
+  } catch (error) {
+    console.error('Search users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while searching users',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Block a user
+// @route   POST /api/users/:userId/block
+// @access  Private
+exports.blockUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot block yourself',
+      });
+    }
+
+    const [currentUser, targetUser] = await Promise.all([
+      User.findById(currentUserId),
+      User.findById(userId),
+    ]);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Check if already blocked
+    const alreadyBlocked = currentUser.blockedUsers.includes(userId);
+
+    if (alreadyBlocked) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already blocked',
+      });
+    }
+
+    // Remove from followers/following if they exist
+    currentUser.following = currentUser.following.filter(
+      (id) => id.toString() !== userId
+    );
+    currentUser.followers = currentUser.followers.filter(
+      (id) => id.toString() !== userId
+    );
+    targetUser.following = targetUser.following.filter(
+      (id) => id.toString() !== currentUserId
+    );
+    targetUser.followers = targetUser.followers.filter(
+      (id) => id.toString() !== currentUserId
+    );
+
+    // Add to blocked list
+    currentUser.blockedUsers.push(userId);
+
+    await Promise.all([currentUser.save(), targetUser.save()]);
+
+    res.status(200).json({
+      success: true,
+      message: 'User blocked successfully',
+    });
+  } catch (error) {
+    console.error('Block user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while blocking user',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Unblock a user
+// @route   DELETE /api/users/:userId/unblock
+// @access  Private
+exports.unblockUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID',
+      });
+    }
+
+    const currentUser = await User.findById(currentUserId);
+
+    const isBlocked = currentUser.blockedUsers.includes(userId);
+
+    if (!isBlocked) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not blocked',
+      });
+    }
+
+    // Remove from blocked list
+    currentUser.blockedUsers = currentUser.blockedUsers.filter(
+      (id) => id.toString() !== userId
+    );
+
+    await currentUser.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'User unblocked successfully',
+    });
+  } catch (error) {
+    console.error('Unblock user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while unblocking user',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get blocked users list
+// @route   GET /api/users/blocked
+// @access  Private
+exports.getBlockedUsers = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const user = await User.findById(req.user.id)
+      .select('blockedUsers')
+      .populate({
+        path: 'blockedUsers',
+        select: 'username profilePic rollNumber department batch',
+        options: {
+          skip,
+          limit,
+        },
+      });
+
+    const blockedUsers = user.blockedUsers.map((blockedUser) => ({
+      id: blockedUser._id,
+      username: blockedUser.username,
+      profilePic: blockedUser.profilePic,
+      rollNumber: blockedUser.rollNumber,
+      department: blockedUser.department,
+      batch: blockedUser.batch,
+    }));
+
+    const totalUser = await User.findById(req.user.id).select('blockedUsers');
+    const total = totalUser.blockedUsers.length;
+
+    res.status(200).json({
+      success: true,
+      count: blockedUsers.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      blockedUsers,
+    });
+  } catch (error) {
+    console.error('Get blocked users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching blocked users',
+      error: error.message,
+    });
+  }
+};
+
 // module.exports = {
 //   getUserActivity,
+//   followUser,
+//   unfollowUser,
+//   getFollowers,
+//   getFollowing,
+//   searchUsers,
+//   blockUser,
+//   unblockUser,
+//   getBlockedUsers,
 // };

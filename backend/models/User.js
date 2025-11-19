@@ -1,96 +1,89 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema(
+  {
     username: {
-        type: String,
-        required: [true, 'Username is required'],
-        unique: true,
-        trim: true,
-        minLength: [3, 'Username must be at least 3 characters long'],
-        maxLength: [30, 'Username cannot exceed 30 characters']
+      type: String,
+      required: [true, 'Username is required'],
+      unique: true,
+      trim: true,
+      lowercase: true,
+      minlength: [3, 'Username must be at least 3 characters'],
+      maxlength: [20, 'Username cannot exceed 20 characters'],
     },
     email: {
-        type: String,
-        required: [true, 'Email is required'],
-        unique: true,
-        lowercase: true,
-        trim: true,
-        match: [
-            /^[a-z0-9._%+-]+@cuilahore\.edu\.pk$/i,
-            'Please use your COMSATS Lahore email (e.g., fa19-bcs-111@cuilahore.edu.pk)',
-        ],
+      type: String,
+      required: [true, 'Email is required'],
+      unique: true,
+      trim: true,
+      lowercase: true,
+      match: [
+        /@(cfd\.nu\.edu\.pk|cuilahore\.edu\.pk)$/,
+        'Must be a valid COMSATS email (@cfd.nu.edu.pk or @cuilahore.edu.pk)',
+      ],
     },
     password: {
-        type: String,
-        required: [true, 'Password is required'],
-        minLength: [6, 'Password must be at least 6 characters long'],
-        select: false,
+      type: String,
+      required: [true, 'Password is required'],
+      minlength: [6, 'Password must be at least 6 characters'],
     },
-    verified: {
-        type: Boolean,
-        default: false
-    },
-    profilePic: {
-        type: String,
-        default: ''
-    },
-    bio: {
-        type: String,
-        maxLength: [150, 'Bio cannot exceed 150 characters'],
-        default: ''
-    },
-    followers: [
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-        }
-    ],
-    following: [
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-        }
-    ],
     rollNumber: {
-        type: String,
+      type: String,
+      required: [true, 'Roll number is required'],
+      unique: true,
+      uppercase: true,
     },
     department: {
-        type: String,
+      type: String,
+      required: [true, 'Department is required'],
     },
     batch: {
-        type: String,
+      type: String,
+      required: [true, 'Batch is required'],
     },
-    
-},
-{
-    timestamps: true
-}
+    profilePic: {
+      type: String,
+      default: '',
+    },
+    bio: {
+      type: String,
+      maxlength: [150, 'Bio cannot exceed 150 characters'],
+      default: '',
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    followers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    following: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    blockedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+  },
+  {
+    timestamps: true,
+  }
 );
 
-userSchema.pre('save',async function(next){
-    if(!this.isModified('password')){
-        next();
-    }
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-});
-
-userSchema.pre('save', function (next) {
-  if (this.email) {
-    // Example: fa22-bcs-111@cfd.nu.edu.pk
-    const emailParts = this.email.split('@')[0];
-    const [batch, dept, rollNum] = emailParts.split('-');
-    
-    this.rollNumber = emailParts;
-    this.batch = batch.toUpperCase(); // FA22, SP23, etc.
-    this.department = dept.toUpperCase(); // BCS, BSE, etc.
-  }
-  next();
-});
-
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+// Index for better query performance
+userSchema.index({ username: 1 });
+userSchema.index({ email: 1 });
+userSchema.index({ rollNumber: 1 });
+userSchema.index({ department: 1 });
+userSchema.index({ followers: 1 });
+userSchema.index({ following: 1 });
 
 module.exports = mongoose.model('User', userSchema);

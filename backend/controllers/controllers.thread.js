@@ -76,18 +76,39 @@ exports.getAllThreads = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get total count
-    const total = await Thread.countDocuments({ isDeleted: false });
+    let excludedUserIds = [];
 
-    // Fetch threads
-    const threads = await Thread.find({ isDeleted: false })
+    // If user is logged in, exclude blocked users
+    if (req.user) {
+      const currentUser = await User.findById(req.user.id).select('blockedUsers');
+      
+      // Get users who blocked current user
+      const usersWhoBlockedMe = await User.find({
+        blockedUsers: req.user.id,
+      }).select('_id');
+
+      excludedUserIds = [
+        ...currentUser.blockedUsers,
+        ...usersWhoBlockedMe.map((u) => u._id),
+      ];
+    }
+
+    // Build query
+    const query = { isDeleted: false };
+    
+    if (excludedUserIds.length > 0) {
+      query.author = { $nin: excludedUserIds };
+    }
+
+    const total = await Thread.countDocuments(query);
+
+    const threads = await Thread.find(query)
       .populate('author', 'username profilePic rollNumber department batch')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Format threads (hide author info for anonymous posts)
     const formattedThreads = threads.map((thread) => {
       const formattedThread = {
         id: thread._id,
@@ -118,7 +139,6 @@ exports.getAllThreads = async (req, res) => {
         };
       }
 
-      // Add isLiked flag if user is logged in
       if (req.user) {
         formattedThread.isLiked = thread.likes.some(
           (likeId) => likeId.toString() === req.user.id
