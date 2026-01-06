@@ -8,21 +8,21 @@ export default function SuggestedUsers() {
   const [suggestedUsers] = useState([
     {
       id: '1',
-      username: 'ahmed_dev',
+      username: 'Potty Awi',
       department: 'Computer Science',
       batch: 'FA22',
       profilePic: '',
     },
     {
       id: '2',
-      username: 'sara_coder',
+      username: 'Ali cunt',
       department: 'Software Engineering',
       batch: 'SP23',
       profilePic: '',
     },
     {
       id: '3',
-      username: 'ali_tech',
+      username: 'staad',
       department: 'Information Technology',
       batch: 'FA23',
       profilePic: '',

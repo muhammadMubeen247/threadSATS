@@ -1,15 +1,16 @@
 const Comment = require('../models/Comment');
 const Thread = require('../models/Thread');
+const User = require('../models/User');
 const mongoose = require('mongoose');
 
 // Helper function to format comment response
-const formatComment = (comment, userId = null) => {
+const formatComment = (comment, userId = null, includePreview = false, previewReplies = []) => {
   const formatted = {
     id: comment._id,
     content: comment.isDeleted ? '[deleted]' : comment.content,
     isAnonymous: comment.isAnonymous,
     likes: comment.likes,
-    likesCount: comment.likesCount || comment.likes.length,
+    likesCount: comment.likes.length,
     replyCount: comment.replyCount,
     depth: comment.depth,
     threadId: comment.threadId,
@@ -19,7 +20,7 @@ const formatComment = (comment, userId = null) => {
     updatedAt: comment.updatedAt,
   };
 
-  // Only show author info if not deleted and not anonymous
+  // Author information
   if (!comment.isDeleted && !comment.isAnonymous && comment.author) {
     formatted.author = {
       id: comment.author._id,
@@ -42,12 +43,20 @@ const formatComment = (comment, userId = null) => {
     };
   }
 
-  // Add user-specific flags
+  // User interaction status
   if (userId) {
     formatted.isLiked = comment.likes.some(
       (likeId) => likeId.toString() === userId.toString()
     );
-    formatted.isOwner = comment.author && comment.author._id.toString() === userId.toString();
+    formatted.isOwner =
+      comment.author && comment.author._id.toString() === userId.toString();
+  }
+
+  // Include preview replies (2 most liked) if requested
+  if (includePreview && previewReplies.length > 0) {
+    formatted.previewReplies = previewReplies.map((reply) =>
+      formatComment(reply, userId, false)
+    );
   }
 
   return formatted;
@@ -59,9 +68,8 @@ const formatComment = (comment, userId = null) => {
 const createComment = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { content, isAnonymous } = req.body;
+    const { content, isAnonymous = false } = req.body;
 
-    // Validate thread ID
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return res.status(400).json({
         success: false,
@@ -69,8 +77,10 @@ const createComment = async (req, res) => {
       });
     }
 
-    // Check if thread exists and is not deleted
-    const thread = await Thread.findOne({ _id: threadId, isDeleted: false });
+    const thread = await Thread.findOne({
+      _id: threadId,
+      isDeleted: false,
+    });
 
     if (!thread) {
       return res.status(404).json({
@@ -79,22 +89,45 @@ const createComment = async (req, res) => {
       });
     }
 
-    // Create comment
+    // Check if user is blocked by thread author
+    if (!thread.isAnonymous) {
+      const threadAuthor = await User.findById(thread.author).select(
+        'blockedUsers'
+      );
+      if (
+        threadAuthor &&
+        threadAuthor.blockedUsers.some(
+          (id) => id.toString() === req.user.id
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot comment on this thread',
+        });
+      }
+    }
+
     const comment = await Comment.create({
       content,
       author: req.user.id,
       threadId,
-      isAnonymous: isAnonymous || false,
-      depth: 0, // Direct comment on thread
+      isAnonymous,
+      depth: 0,
     });
 
-    // Populate author
-    await comment.populate('author', 'username profilePic rollNumber department batch');
+    // Increment thread comment count
+    thread.commentCount += 1;
+    await thread.save();
+
+    const populatedComment = await Comment.findById(comment._id).populate(
+      'author',
+      'username profilePic rollNumber department batch'
+    );
 
     res.status(201).json({
       success: true,
       message: 'Comment created successfully',
-      comment: formatComment(comment, req.user.id),
+      comment: formatComment(populatedComment, req.user.id),
     });
   } catch (error) {
     console.error('Create comment error:', error);
@@ -112,9 +145,8 @@ const createComment = async (req, res) => {
 const replyToComment = async (req, res) => {
   try {
     const { commentId } = req.params;
-    const { content, isAnonymous } = req.body;
+    const { content, isAnonymous = false } = req.body;
 
-    // Validate comment ID
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return res.status(400).json({
         success: false,
@@ -122,8 +154,10 @@ const replyToComment = async (req, res) => {
       });
     }
 
-    // Check if parent comment exists
-    const parentComment = await Comment.findById(commentId);
+    const parentComment = await Comment.findOne({
+      _id: commentId,
+      isDeleted: false,
+    }).populate('threadId');
 
     if (!parentComment) {
       return res.status(404).json({
@@ -132,23 +166,46 @@ const replyToComment = async (req, res) => {
       });
     }
 
-    // Create reply
+    // Check if parent comment author blocked current user
+    if (!parentComment.isAnonymous) {
+      const commentAuthor = await User.findById(parentComment.author).select(
+        'blockedUsers'
+      );
+      if (
+        commentAuthor &&
+        commentAuthor.blockedUsers.some(
+          (id) => id.toString() === req.user.id
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot reply to this comment',
+        });
+      }
+    }
+
     const reply = await Comment.create({
       content,
       author: req.user.id,
-      threadId: parentComment.threadId,
+      threadId: parentComment.threadId._id,
       parentCommentId: commentId,
-      isAnonymous: isAnonymous || false,
+      isAnonymous,
       depth: parentComment.depth + 1,
     });
 
-    // Populate author
-    await reply.populate('author', 'username profilePic rollNumber department batch');
+    // Increment parent comment reply count
+    parentComment.replyCount += 1;
+    await parentComment.save();
+
+    const populatedReply = await Comment.findById(reply._id).populate(
+      'author',
+      'username profilePic rollNumber department batch'
+    );
 
     res.status(201).json({
       success: true,
       message: 'Reply created successfully',
-      comment: formatComment(reply, req.user.id),
+      reply: formatComment(populatedReply, req.user.id),
     });
   } catch (error) {
     console.error('Reply to comment error:', error);
@@ -160,17 +217,16 @@ const replyToComment = async (req, res) => {
   }
 };
 
-// @desc    Get all comments for a thread (nested structure)
+// @desc    Get all comments for a thread (top-level only with preview)
 // @route   GET /api/threads/:threadId/comments
 // @access  Public
 const getThreadComments = async (req, res) => {
   try {
     const { threadId } = req.params;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Validate thread ID
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return res.status(400).json({
         success: false,
@@ -178,8 +234,10 @@ const getThreadComments = async (req, res) => {
       });
     }
 
-    // Check if thread exists
-    const thread = await Thread.findOne({ _id: threadId, isDeleted: false });
+    const thread = await Thread.findOne({
+      _id: threadId,
+      isDeleted: false,
+    });
 
     if (!thread) {
       return res.status(404).json({
@@ -188,52 +246,60 @@ const getThreadComments = async (req, res) => {
       });
     }
 
-    // Get top-level comments (parentCommentId is null)
-    // Sort by likes count (most liked first)
-    const topComments = await Comment.find({
+    // Get total count of top-level comments
+    const total = await Comment.countDocuments({
       threadId,
       parentCommentId: null,
+      isDeleted: false,
+    });
+
+    // Get top-level comments
+    const comments = await Comment.find({
+      threadId,
+      parentCommentId: null,
+      isDeleted: false,
     })
       .populate('author', 'username profilePic rollNumber department batch')
-      .sort({ likes: -1, createdAt: 1 }) // Most liked first, then chronological
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Get all replies for these comments
-    const commentIds = topComments.map((c) => c._id);
-    const replies = await Comment.find({
-      parentCommentId: { $in: commentIds },
-    })
-      .populate('author', 'username profilePic rollNumber department batch')
-      .sort({ likes: -1, createdAt: 1 })
-      .lean();
+    // For each comment, get 2 most liked replies as preview
+    const formattedComments = await Promise.all(
+      comments.map(async (comment) => {
+        let previewReplies = [];
 
-    // Organize replies under their parent comments
-    const commentsWithReplies = topComments.map((comment) => {
-      const commentReplies = replies.filter(
-        (reply) => reply.parentCommentId.toString() === comment._id.toString()
-      );
+        if (comment.replyCount > 0) {
+          previewReplies = await Comment.find({
+            parentCommentId: comment._id,
+            isDeleted: false,
+          })
+            .populate(
+              'author',
+              'username profilePic rollNumber department batch'
+            )
+            .sort({ likes: -1 }) // Sort by most liked
+            .limit(2)
+            .lean();
+        }
 
-      return {
-        ...formatComment(comment, req.user?.id),
-        replies: commentReplies.map((reply) => formatComment(reply, req.user?.id)),
-      };
-    });
-
-    // Get total count
-    const total = await Comment.countDocuments({
-      threadId,
-      parentCommentId: null,
-    });
+        return formatComment(
+          comment,
+          req.user?.id,
+          comment.replyCount > 0,
+          previewReplies
+        );
+      })
+    );
 
     res.status(200).json({
       success: true,
-      count: commentsWithReplies.length,
+      count: formattedComments.length,
       total,
       page,
       pages: Math.ceil(total / limit),
-      comments: commentsWithReplies,
+      comments: formattedComments,
     });
   } catch (error) {
     console.error('Get thread comments error:', error);
@@ -245,17 +311,16 @@ const getThreadComments = async (req, res) => {
   }
 };
 
-// @desc    Get replies for a specific comment
+// @desc    Get replies for a specific comment (paginated)
 // @route   GET /api/comments/:commentId/replies
 // @access  Public
 const getCommentReplies = async (req, res) => {
   try {
     const { commentId } = req.params;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 10; // 10 replies per load
     const skip = (page - 1) * limit;
 
-    // Validate comment ID
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return res.status(400).json({
         success: false,
@@ -263,7 +328,6 @@ const getCommentReplies = async (req, res) => {
       });
     }
 
-    // Check if parent comment exists
     const parentComment = await Comment.findById(commentId);
 
     if (!parentComment) {
@@ -273,23 +337,50 @@ const getCommentReplies = async (req, res) => {
       });
     }
 
-    // Get replies
+    // Get total count of replies
+    const total = await Comment.countDocuments({
+      parentCommentId: commentId,
+      isDeleted: false,
+    });
+
+    // Get paginated replies
     const replies = await Comment.find({
       parentCommentId: commentId,
+      isDeleted: false,
     })
       .populate('author', 'username profilePic rollNumber department batch')
-      .sort({ likes: -1, createdAt: 1 })
+      .sort({ createdAt: 1 }) // Oldest first (chronological)
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Get total count
-    const total = await Comment.countDocuments({
-      parentCommentId: commentId,
-    });
+    // For each reply, get preview of its nested replies
+    const formattedReplies = await Promise.all(
+      replies.map(async (reply) => {
+        let previewReplies = [];
 
-    // Format replies
-    const formattedReplies = replies.map((reply) => formatComment(reply, req.user?.id));
+        if (reply.replyCount > 0) {
+          previewReplies = await Comment.find({
+            parentCommentId: reply._id,
+            isDeleted: false,
+          })
+            .populate(
+              'author',
+              'username profilePic rollNumber department batch'
+            )
+            .sort({ likes: -1 })
+            .limit(2)
+            .lean();
+        }
+
+        return formatComment(
+          reply,
+          req.user?.id,
+          reply.replyCount > 0,
+          previewReplies
+        );
+      })
+    );
 
     res.status(200).json({
       success: true,
@@ -298,6 +389,7 @@ const getCommentReplies = async (req, res) => {
       page,
       pages: Math.ceil(total / limit),
       replies: formattedReplies,
+      hasMore: page < Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('Get comment replies error:', error);
@@ -309,14 +401,13 @@ const getCommentReplies = async (req, res) => {
   }
 };
 
-// @desc    Delete a comment (soft delete)
-// @route   DELETE /api/comments/:commentId
-// @access  Private
-const deleteComment = async (req, res) => {
+// @desc    Get single comment by ID
+// @route   GET /api/comments/:commentId
+// @access  Public
+const getCommentById = async (req, res) => {
   try {
     const { commentId } = req.params;
 
-    // Validate comment ID
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return res.status(400).json({
         success: false,
@@ -324,7 +415,50 @@ const deleteComment = async (req, res) => {
       });
     }
 
-    const comment = await Comment.findById(commentId);
+    const comment = await Comment.findById(commentId)
+      .populate('author', 'username profilePic rollNumber department batch')
+      .populate('threadId', 'content')
+      .lean();
+
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      comment: formatComment(comment, req.user?.id),
+    });
+  } catch (error) {
+    console.error('Get comment by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching comment',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Delete a comment
+// @route   DELETE /api/comments/:commentId
+// @access  Private
+const deleteComment = async (req, res) => {
+  try {
+    const { commentId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(commentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid comment ID',
+      });
+    }
+
+    const comment = await Comment.findOne({
+      _id: commentId,
+      isDeleted: false,
+    });
 
     if (!comment) {
       return res.status(404).json({
@@ -341,9 +475,9 @@ const deleteComment = async (req, res) => {
       });
     }
 
-    // Soft delete - mark as deleted but keep children
+    // Soft delete
     comment.isDeleted = true;
-    comment.content = '[deleted]'; // Optional: clear content
+    comment.content = '[deleted]';
     await comment.save();
 
     res.status(200).json({
@@ -360,14 +494,13 @@ const deleteComment = async (req, res) => {
   }
 };
 
-// @desc    Like/Unlike a comment
+// @desc    Toggle like on a comment
 // @route   PUT /api/comments/:commentId/like
 // @access  Private
 const toggleCommentLike = async (req, res) => {
   try {
     const { commentId } = req.params;
 
-    // Validate comment ID
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return res.status(400).json({
         success: false,
@@ -375,7 +508,10 @@ const toggleCommentLike = async (req, res) => {
       });
     }
 
-    const comment = await Comment.findById(commentId);
+    const comment = await Comment.findOne({
+      _id: commentId,
+      isDeleted: false,
+    });
 
     if (!comment) {
       return res.status(404).json({
@@ -384,32 +520,27 @@ const toggleCommentLike = async (req, res) => {
       });
     }
 
-    const userId = req.user.id;
-    const likeIndex = comment.likes.indexOf(userId);
+    const likeIndex = comment.likes.indexOf(req.user.id);
+    let action;
 
     if (likeIndex > -1) {
       // Unlike
       comment.likes.splice(likeIndex, 1);
-      await comment.save();
-
-      return res.status(200).json({
-        success: true,
-        message: 'Comment unliked',
-        isLiked: false,
-        likesCount: comment.likes.length,
-      });
+      action = 'unliked';
     } else {
       // Like
-      comment.likes.push(userId);
-      await comment.save();
-
-      return res.status(200).json({
-        success: true,
-        message: 'Comment liked',
-        isLiked: true,
-        likesCount: comment.likes.length,
-      });
+      comment.likes.push(req.user.id);
+      action = 'liked';
     }
+
+    await comment.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Comment ${action} successfully`,
+      likesCount: comment.likes.length,
+      isLiked: action === 'liked',
+    });
   } catch (error) {
     console.error('Toggle comment like error:', error);
     res.status(500).json({
@@ -420,52 +551,12 @@ const toggleCommentLike = async (req, res) => {
   }
 };
 
-// @desc    Get a single comment by ID
-// @route   GET /api/comments/:commentId
-// @access  Public
-const getCommentById = async (req, res) => {
-  try {
-    const { commentId } = req.params;
-
-    // Validate comment ID
-    if (!mongoose.Types.ObjectId.isValid(commentId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid comment ID',
-      });
-    }
-
-    const comment = await Comment.findById(commentId)
-      .populate('author', 'username profilePic rollNumber department batch')
-      .lean();
-
-    if (!comment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Comment not found',
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      comment: formatComment(comment, req.user?.id),
-    });
-  } catch (error) {
-    console.error('Get comment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching comment',
-      error: error.message,
-    });
-  }
-};
-
 module.exports = {
   createComment,
   replyToComment,
   getThreadComments,
   getCommentReplies,
+  getCommentById,
   deleteComment,
   toggleCommentLike,
-  getCommentById,
 };
