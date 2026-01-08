@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatDistanceToNow } from 'date-fns';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 import ImageLightbox from './ImageLightbox';
 
@@ -122,7 +122,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         <div className="flex space-x-3">
           {/* Avatar */}
           <Link
-            to={`/profile/${thread.author?.username}`}
+            to={`/@${thread.author?.username}`}
             onClick={(e) => e.stopPropagation()}
           >
             <Avatar className="h-10 w-10">
@@ -142,7 +142,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Link
-                  to={`/profile/${thread.author?.username}`}
+                  to={`/@${thread.author?.username}`}
                   onClick={(e) => e.stopPropagation()}
                   className="font-semibold hover:underline"
                 >

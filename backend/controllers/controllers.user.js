@@ -839,6 +839,81 @@ exports.getBlockedUsers = async (req, res) => {
   }
 };
 
+//@desc Get a user profile by username
+//@route GET /api/users/:username/profile
+//@access Public
+exports.getUserProfile = async (req, res) => {
+  try {
+    const { username } = req.params; // Changed from userId
+
+    // Find user by username (case-insensitive)
+    const user = await User.findOne({ 
+      username: username.toLowerCase() 
+    }).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Check if blocked (if req.user exists)
+    if (req.user) {
+      const blocked = await areUsersBlocked(req.user.id, user._id);
+      if (blocked) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied',
+        });
+      }
+    }
+
+    // Calculate relationship flags
+    let isFollowing = false;
+    let isMutual = false;
+    const isCurrentUser = req.user?.id === user._id.toString();
+
+    if (req.user && !isCurrentUser) {
+      isFollowing = user.followers.includes(req.user.id);
+      isMutual = isFollowing && user.following.includes(req.user.id);
+    }
+
+    // Get thread count
+    const threadsCount = await Thread.countDocuments({
+      author: user._id,
+      isDeleted: false,
+    });
+
+    res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        profilePic: user.profilePic,
+        coverPhoto: user.coverPhoto || null,
+        bio: user.bio || '',
+        rollNumber: user.rollNumber,
+        department: user.department,
+        batch: user.batch,
+        followersCount: user.followers.length,
+        followingCount: user.following.length,
+        threadsCount,
+        isFollowing,
+        isMutual,
+        isCurrentUser,
+      },
+    });
+  } catch (error) {
+    console.error('Get user profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};
+
 // module.exports = {
 //   getUserActivity,
 //   followUser,

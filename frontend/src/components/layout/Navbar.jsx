@@ -3,7 +3,7 @@ import { Search, Bell, User, LogOut } from 'lucide-react';
 import { ThemeToggle } from '../ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 import {
   DropdownMenu,
@@ -86,7 +86,7 @@ export default function Navbar() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/profile')}>
+              <DropdownMenuItem onClick={() => user?.username && navigate(`/@${user.username}`)}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>

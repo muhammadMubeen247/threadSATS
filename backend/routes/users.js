@@ -10,6 +10,7 @@ const {
   blockUser,
   unblockUser,
   getBlockedUsers,
+  getUserProfile,
 } = require('../controllers/controllers.user');
 const { protect } = require('../middleware/middleware.auth');
 const { checkBlock } = require('../middleware/checkBlock');
@@ -69,13 +70,13 @@ const validate = (req, res, next) => {
   next();
 };
 
-// Public routes
-router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
-router.get('/:userId/activity', userIdValidation, validate, optionalAuth, getUserActivity);
-router.get('/:userId/followers', userIdValidation, validate, optionalAuth, getFollowers);
-router.get('/:userId/following', userIdValidation, validate, optionalAuth, getFollowing);
-
 // Protected routes
+router.get('/search', protect, searchValidation, validate, searchUsers);
+router.get('/:userId/activity',protect, userIdValidation, validate, getUserActivity);
+router.get('/:userId/followers',protect, userIdValidation, validate, getFollowers);
+router.get('/:userId/following',protect, userIdValidation, validate, getFollowing);
+router.get('/:username/profile', optionalAuth, getUserProfile);
+
 router.post('/:userId/follow', protect, userIdValidation, validate, checkBlock, followUser);
 router.delete('/:userId/unfollow', protect, userIdValidation, validate, unfollowUser);
 router.post('/:userId/block', protect, userIdValidation, validate, blockUser);

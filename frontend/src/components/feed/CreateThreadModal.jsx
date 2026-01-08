@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 
 export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) {

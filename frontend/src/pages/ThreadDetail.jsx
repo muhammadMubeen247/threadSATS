@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 import { Eye, EyeOff } from 'lucide-react';
 

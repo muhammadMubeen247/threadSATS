@@ -8,7 +8,7 @@ import SuggestedUsers from '@/components/layout/SuggestedUsers';
 import ThreadCard from '@/components/feed/ThreadCard';
 import CreateThreadModal from '@/components/feed/CreateThreadModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import useAuthStore from '@/store/authStore';
+import {useAuthStore} from '@/store/authStore';
 import api from '@/api/axios';
 
 export default function Home() {
