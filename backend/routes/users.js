@@ -70,17 +70,22 @@ const validate = (req, res, next) => {
   next();
 };
 
-// Protected routes
-router.get('/search', protect, searchValidation, validate, searchUsers);
-router.get('/:userId/activity',protect, userIdValidation, validate, getUserActivity);
-router.get('/:userId/followers',protect, userIdValidation, validate, getFollowers);
-router.get('/:userId/following',protect, userIdValidation, validate, getFollowing);
+// ✅ Put static routes first
+router.get('/blocked', protect, getBlockedUsers);
+
+// ✅ Search should be public-ish (optional auth), not protected
+router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
+
+// ✅ Then put param routes
+router.get('/:userId/activity', protect, userIdValidation, validate, getUserActivity);
+router.get('/:userId/followers', protect, userIdValidation, validate, getFollowers);
+router.get('/:userId/following', protect, userIdValidation, validate, getFollowing);
+
 router.get('/:username/profile', optionalAuth, getUserProfile);
 
 router.post('/:userId/follow', protect, userIdValidation, validate, checkBlock, followUser);
 router.delete('/:userId/unfollow', protect, userIdValidation, validate, unfollowUser);
 router.post('/:userId/block', protect, userIdValidation, validate, blockUser);
 router.delete('/:userId/unblock', protect, userIdValidation, validate, unblockUser);
-router.get('/blocked', protect, getBlockedUsers);
 
 module.exports = router;

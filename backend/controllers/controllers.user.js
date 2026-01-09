@@ -579,29 +579,36 @@ exports.getFollowing = async (req, res) => {
   }
 };
 
+const escapeRegExp = (s = '') => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Search users
 // @route   GET /api/users/search?q=query
 // @access  Public
 exports.searchUsers = async (req, res) => {
   try {
-    const query = req.query.q;
+    const queryRaw = req.query.q || '';
+    const query = queryRaw.trim();
+
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
     const skip = (page - 1) * limit;
 
-    if (!query || query.trim().length === 0) {
+    if (!query) {
       return res.status(400).json({
         success: false,
         message: 'Search query is required',
       });
     }
 
-    // Build search criteria
+    // ✅ PREFIX match: starts with query
+    const escaped = escapeRegExp(query);
+    const prefixRegex = new RegExp(`^${escaped}`, 'i');
+
     const searchCriteria = {
       $or: [
-        { username: { $regex: query, $options: 'i' } },
-        { rollNumber: { $regex: query, $options: 'i' } },
-        { department: { $regex: query, $options: 'i' } },
+        { username: { $regex: prefixRegex } },
+        { rollNumber: { $regex: prefixRegex } },
+        { department: { $regex: prefixRegex } },
       ],
     };
 
@@ -610,7 +617,6 @@ exports.searchUsers = async (req, res) => {
       const currentUser = await User.findById(req.user.id).select('blockedUsers');
       const blockedByCurrentUser = currentUser.blockedUsers;
 
-      // Find users who blocked current user
       const usersWhoBlockedMe = await User.find({
         blockedUsers: req.user.id,
       }).select('_id');
@@ -620,7 +626,6 @@ exports.searchUsers = async (req, res) => {
         ...usersWhoBlockedMe.map((u) => u._id),
       ];
 
-      // Only exclude blocked users, NOT current user
       if (blockedUserIds.length > 0) {
         searchCriteria._id = { $nin: blockedUserIds };
       }
@@ -643,7 +648,6 @@ exports.searchUsers = async (req, res) => {
         ? user.following.some((id) => id.toString() === req.user.id)
         : false;
 
-      // Mark if this is the current user
       const isCurrentUser = req.user ? user._id.toString() === req.user.id : false;
 
       return {
@@ -657,11 +661,11 @@ exports.searchUsers = async (req, res) => {
         followingCount: user.following.length,
         isFollowing,
         isMutual,
-        isCurrentUser, // ✅ Added flag to indicate current user
+        isCurrentUser,
       };
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: formattedUsers.length,
       total,
@@ -671,7 +675,7 @@ exports.searchUsers = async (req, res) => {
     });
   } catch (error) {
     console.error('Search users error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while searching users',
       error: error.message,
