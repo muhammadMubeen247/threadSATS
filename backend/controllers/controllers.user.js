@@ -242,6 +242,7 @@ exports.getUserActivity = async (req, res) => {
 // @route   POST /api/users/:userId/follow
 // @access  Private
 exports.followUser = async (req, res) => {
+  console.log('Follow user request received');
   try {
     const { userId } = req.params;
     const currentUserId = req.user.id;

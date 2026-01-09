@@ -3,7 +3,7 @@ import InfiniteScroll from 'react-infinite-scroll-component';
 import ThreadCard from '@/components/feed/ThreadCard';
 import api from '@/api/axios';
 
-export default function ThreadsTab({ username }) {
+export default function ThreadsTab({ username, userId }) {
   const [threads, setThreads] = useState([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -13,9 +13,11 @@ export default function ThreadsTab({ username }) {
     loadThreads();
   }, [username]);
 
+//example request:
+// http://localhost:5000/api/users/69133d70a058f946aae39593/activity?type=threads
   const loadThreads = async () => {
     try {
-      const res = await api.get(`/users/${username}/threads`, {
+      const res = await api.get(`/users/${userId}/activity?type=threads`, {
         params: { page, limit: 10 }
       });
       

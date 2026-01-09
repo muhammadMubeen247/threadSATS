@@ -1,24 +1,46 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Camera, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { useAuthStore } from '@/store/authStore'; // ✅ Changed
+import { useAuthStore } from '@/store/authStore'; // Changed
 
-export default function ProfileHeader({ profile, isOwnProfile, onFollowToggle }) {
-  const [isFollowing, setIsFollowing] = useState(profile?.isFollowing || false);
-  const [followersCount, setFollowersCount] = useState(profile?.followersCount || 0);
+export default function ProfileHeader({ profile, isOwnProfile, onFollowToggle, onEditProfile }) {
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [isBusy, setIsBusy] = useState(false);
+  const [followError, setFollowError] = useState('');
+
+  useEffect(() => {
+    setIsFollowing(Boolean(profile?.isFollowing));
+    setFollowersCount(Number(profile?.followersCount ?? 0));
+  }, [profile?.isFollowing, profile?.followersCount]);
 
   const handleFollowClick = async () => {
+    if (!profile?.id || isBusy) return;
+
+    setFollowError('');
+    setIsBusy(true);
+
+    const prevFollowing = isFollowing;
+    const prevCount = followersCount;
+
+    // optimistic update
+    setIsFollowing(!prevFollowing);
+    setFollowersCount(prevFollowing ? prevCount - 1 : prevCount + 1);
+
     try {
-      await onFollowToggle(profile.username, isFollowing);
-      setIsFollowing(!isFollowing);
-      setFollowersCount(prev => isFollowing ? prev - 1 : prev + 1);
-    } catch (error) {
-      console.error('Follow toggle error:', error);
+      await onFollowToggle(profile.id, prevFollowing);
+    } catch (e) {
+      // rollback + show error
+      setIsFollowing(prevFollowing);
+      setFollowersCount(prevCount);
+      setFollowError(e?.message || 'Follow failed');
+    } finally {
+      setIsBusy(false);
     }
   };
 
-  // ✅ Ensure the component returns JSX (even a minimal placeholder)
+  // Ensure the component returns JSX (even a minimal placeholder)
   if (!profile) return null;
 
   return (
@@ -58,53 +80,76 @@ export default function ProfileHeader({ profile, isOwnProfile, onFollowToggle })
           </div>
 
           {/* Action Button */}
-          <div className="mt-4">
+          {/* <div className="mt-4">
             {isOwnProfile ? (
-              <Button variant="outline">
+              <Button variant="outline" type="button" onClick={onEditProfile}>
                 Edit Profile
               </Button>
             ) : (
               <Button
                 variant={isFollowing ? 'outline' : 'default'}
                 onClick={handleFollowClick}
+                disabled={isBusy}
+                type="button"
               >
-                {isFollowing ? 'Following' : 'Follow'}
+                {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
               </Button>
             )}
-          </div>
+          </div> */}
         </div>
 
         {/* User Info */}
-        <div className="space-y-2">
-          <div>
-            <h1 className="text-2xl font-bold">@{profile?.username}</h1>
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <MapPin className="w-4 h-4" />
-              <span>{profile?.department} • {profile?.batch}</span>
-            </div>
-          </div>
-
-          {/* Bio */}
-          {profile?.bio && (
-            <p className="text-sm">{profile.bio}</p>
-          )}
-
-          {/* Stats */}
-          <div className="flex gap-6 pt-2">
-            <button className="hover:underline">
-              <span className="font-bold">{followersCount}</span>
-              <span className="text-muted-foreground ml-1">Followers</span>
-            </button>
-            <button className="hover:underline">
-              <span className="font-bold">{profile?.followingCount}</span>
-              <span className="text-muted-foreground ml-1">Following</span>
-            </button>
+        <div className="flex justify-between items-center">
+            <div className="space-y-2">
             <div>
-              <span className="font-bold">{profile?.threadsCount || 0}</span>
-              <span className="text-muted-foreground ml-1">Threads</span>
+                <h1 className="text-2xl font-bold">@{profile?.username}</h1>
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <MapPin className="w-4 h-4" />
+                <span>{profile?.department} • {profile?.batch}</span>
+                </div>
             </div>
-          </div>
+
+            {/* Bio */}
+            {profile?.bio && (
+                <p className="text-sm">{profile.bio}</p>
+            )}
+
+            {/* Stats */}
+            <div className="flex gap-6 pt-2">
+                <button className="hover:underline">
+                <span className="font-bold">{followersCount}</span>
+                <span className="text-muted-foreground ml-1">Followers</span>
+                </button>
+                <button className="hover:underline">
+                <span className="font-bold">{profile?.followingCount}</span>
+                <span className="text-muted-foreground ml-1">Following</span>
+                </button>
+                <div>
+                <span className="font-bold">{profile?.threadsCount || 0}</span>
+                <span className="text-muted-foreground ml-1">Threads</span>
+                </div>
+            </div>
+            </div>
+            <div className="mt-4">
+                {isOwnProfile ? (
+                <Button variant="outline" type="button" onClick={onEditProfile}>
+                    Edit Profile
+                </Button>
+                ) : (
+                <Button
+                    variant={isFollowing ? 'outline' : 'default'}
+                    onClick={handleFollowClick}
+                    disabled={isBusy}
+                    type="button"
+                >
+                    {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
+                </Button>
+                )}
+            </div>
         </div>
+        {followError ? (
+          <p className="mt-2 px-6 text-sm text-red-500">{followError}</p>
+        ) : null}
       </div>
     </div>
   );

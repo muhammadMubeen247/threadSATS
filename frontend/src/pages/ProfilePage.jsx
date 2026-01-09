@@ -12,7 +12,7 @@ import MediaTab from '@/components/profile/MediaTab';
 export default function ProfilePage() {
   const { handle } = useParams(); // "/@mubeen" => handle = "@mubeen"
   const navigate = useNavigate();
-  const { user: currentUser } = useAuthStore();
+  const { user: currentUser, isAuthenticated } = useAuthStore();
 
   const username = useMemo(() => {
     if (!handle) return '';
@@ -45,8 +45,26 @@ export default function ProfilePage() {
   }
 
   const handleFollowToggle = async (u, isCurrentlyFollowing) => {
-    if (isCurrentlyFollowing) await api.delete(`/users/${u}/unfollow`);
-    else await api.post(`/users/${u}/follow`);
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      // ⚠️ Adjust method/path to EXACTLY match your backend routes
+      if (isCurrentlyFollowing) {
+        await api.delete(`/users/${u}/unfollow`);
+      } else {
+        await api.post(`/users/${u}/follow`);
+      }
+    } catch (err) {
+      // surface the real backend message
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Follow action failed';
+      throw new Error(msg);
+    }
   };
 
   if (loading) {
@@ -73,11 +91,18 @@ export default function ProfilePage() {
     );
   }
 
-  const isOwnProfile = currentUser?._id === profile?.id;
+    const currentUserId = currentUser?._id || currentUser?.id;
+    const profileUserId = profile?._id || profile?.id;
+    const isOwnProfile = Boolean(currentUserId && profileUserId && String(currentUserId) === String(profileUserId));
 
   return (
     <div className="max-w-5xl mx-auto">
-      <ProfileHeader profile={profile} isOwnProfile={isOwnProfile} onFollowToggle={handleFollowToggle} />
+      <ProfileHeader
+        profile={profile}
+        isOwnProfile={isOwnProfile}
+        onFollowToggle={handleFollowToggle}
+        onEditProfile={() => navigate('/settings')}
+      />
 
       <Tabs defaultValue="threads" className="mt-4">
         <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
@@ -90,13 +115,13 @@ export default function ProfilePage() {
           <TabsTrigger value="likes" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-6 py-3">
             Likes
           </TabsTrigger>
-          <TabsTrigger value="media" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-6 py-3">
+          {/* <TabsTrigger value="media" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-6 py-3">
             Media
-          </TabsTrigger>
+          </TabsTrigger> */}
         </TabsList>
 
         <TabsContent value="threads" className="mt-0">
-          <ThreadsTab username={username} />
+          <ThreadsTab username={username} userId={profile?.id} />
         </TabsContent>
         <TabsContent value="replies" className="mt-0">
           <RepliesTab username={username} />
@@ -104,9 +129,9 @@ export default function ProfilePage() {
         <TabsContent value="likes" className="mt-0">
           <LikesTab username={username} />
         </TabsContent>
-        <TabsContent value="media" className="mt-0">
+        {/* <TabsContent value="media" className="mt-0">
           <MediaTab username={username} />
-        </TabsContent>
+        </TabsContent> */}
       </Tabs>
     </div>
   );
