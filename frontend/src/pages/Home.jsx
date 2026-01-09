@@ -8,7 +8,7 @@ import SuggestedUsers from '@/components/layout/SuggestedUsers';
 import ThreadCard from '@/components/feed/ThreadCard';
 import CreateThreadModal from '@/components/feed/CreateThreadModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {useAuthStore} from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 
 export default function Home() {
@@ -18,7 +18,7 @@ export default function Home() {
   const [threads, setThreads] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  
+
   // Pagination state
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -37,64 +37,48 @@ export default function Home() {
     setPage(1);
     setHasMore(true);
     fetchThreads(1, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const fetchThreads = async (pageNum = page, isInitial = false) => {
     if (isLoading) return;
-    
+
     setIsLoading(true);
     try {
       let endpoint = '/threads';
-      if (activeTab === 'following') {
-        endpoint = '/threads/feed/following';
-      } else if (activeTab === 'yourBatch') {
-        endpoint = '/threads/feed/batch';
-      }
+      if (activeTab === 'following') endpoint = '/threads/feed/following';
+      else if (activeTab === 'yourBatch') endpoint = '/threads/feed/batch';
 
       const response = await api.get(`${endpoint}?page=${pageNum}&limit=10`);
-      
-      console.log('API Response:', response);
-      
       const newThreads = response.threads || [];
-      
-      if (isInitial) {
-        setThreads(newThreads);
-      } else {
-        setThreads(prev => [...prev, ...newThreads]);
-      }
-      
+
+      setThreads((prev) => (isInitial ? newThreads : [...prev, ...newThreads]));
       setTotalThreads(response.total || 0);
       setHasMore(response.page < response.pages);
       setPage(pageNum + 1);
-      
     } catch (error) {
       console.error('Failed to fetch threads:', error);
-      if (isInitial) {
-        setThreads([]);
-      }
+      if (isInitial) setThreads([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const loadMoreThreads = () => {
-    if (!isLoading && hasMore) {
-      fetchThreads(page);
-    }
+    if (!isLoading && hasMore) fetchThreads(page);
   };
 
   const handleThreadCreated = (newThread) => {
     setThreads([newThread, ...threads]);
-    setTotalThreads(prev => prev + 1);
+    setTotalThreads((prev) => prev + 1);
   };
 
   const handleThreadDeleted = (threadId) => {
     setThreads(threads.filter((t) => (t._id || t.id) !== threadId));
-    setTotalThreads(prev => Math.max(0, prev - 1));
+    setTotalThreads((prev) => Math.max(0, prev - 1));
   };
 
   const renderThreads = () => {
-    // Initial loading state
     if (isLoading && threads.length === 0) {
       return (
         <div className="p-8 text-center">
@@ -104,7 +88,6 @@ export default function Home() {
       );
     }
 
-    // Empty state
     if (!isLoading && threads.length === 0) {
       const emptyMessage =
         activeTab === 'following'
@@ -112,15 +95,10 @@ export default function Home() {
           : activeTab === 'yourBatch'
           ? 'No threads from your batch yet. Be the first to post!'
           : 'No threads yet. Be the first to create one!';
-      
-      return (
-        <div className="p-8 text-center text-muted-foreground">
-          {emptyMessage}
-        </div>
-      );
+
+      return <div className="p-8 text-center text-muted-foreground">{emptyMessage}</div>;
     }
 
-    // Threads with infinite scroll
     return (
       <InfiniteScroll
         dataLength={threads.length}
@@ -155,30 +133,36 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
-      <div className="container mx-auto flex">
-        {/* Left Sidebar */}
-        <Sidebar onCreateThread={() => setShowCreateModal(true)} />
+
+      {/* Responsive shell:
+          - Mobile: feed full width
+          - lg+: left sidebar + feed
+          - xl+: right suggestions */}
+      <div className="container mx-auto flex flex-col lg:flex-row">
+        {/* Left Sidebar (desktop only) */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <Sidebar onCreateThread={() => setShowCreateModal(true)} />
+        </aside>
 
         {/* Main Feed */}
-        <main className="flex-1 border-x min-h-screen">
+        <main className="flex-1 min-h-[calc(100vh-4rem)] lg:border-x">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full justify-start rounded-none border-b bg-background p-0 h-14 sticky top-16 z-10">
+            <TabsList className="w-full justify-start rounded-none border-b bg-background p-0 h-12 sm:h-14 sticky top-16 z-10">
               <TabsTrigger
                 value="forYou"
-                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
               >
                 For You
               </TabsTrigger>
               <TabsTrigger
                 value="following"
-                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
               >
                 Following
               </TabsTrigger>
               <TabsTrigger
                 value="yourBatch"
-                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
               >
                 Your Batch
               </TabsTrigger>
@@ -187,22 +171,21 @@ export default function Home() {
             <TabsContent value="forYou" className="mt-0">
               {renderThreads()}
             </TabsContent>
-
             <TabsContent value="following" className="mt-0">
               {renderThreads()}
             </TabsContent>
-
             <TabsContent value="yourBatch" className="mt-0">
               {renderThreads()}
             </TabsContent>
           </Tabs>
         </main>
 
-        {/* Right Sidebar */}
-        <SuggestedUsers />
+        {/* Right Sidebar (xl+ only) */}
+        <aside className="hidden xl:block w-80 shrink-0">
+          <SuggestedUsers />
+        </aside>
       </div>
 
-      {/* Create Thread Modal */}
       <CreateThreadModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}

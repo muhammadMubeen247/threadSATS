@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {useAuthStore} from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -635,14 +635,22 @@ export default function ThreadDetail() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <div className="container mx-auto flex">
-          <Sidebar />
-          <main className="flex-1 border-x min-h-screen">
+
+        {/* Responsive shell: mobile feed-only, lg+ left sidebar, xl+ right sidebar */}
+        <div className="container mx-auto flex flex-col lg:flex-row">
+          <aside className="hidden lg:block w-64 shrink-0">
+            <Sidebar />
+          </aside>
+
+          <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           </main>
-          <SuggestedUsers />
+
+          <aside className="hidden xl:block w-80 shrink-0">
+            <SuggestedUsers />
+          </aside>
         </div>
       </div>
     );
@@ -652,14 +660,19 @@ export default function ThreadDetail() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <div className="container mx-auto flex">
-          <Sidebar />
-          <main className="flex-1 border-x min-h-screen">
-            <div className="p-8 text-center text-muted-foreground">
-              Thread not found
-            </div>
+
+        <div className="container mx-auto flex flex-col lg:flex-row">
+          <aside className="hidden lg:block w-64 shrink-0">
+            <Sidebar />
+          </aside>
+
+          <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
+            <div className="p-8 text-center text-muted-foreground">Thread not found</div>
           </main>
-          <SuggestedUsers />
+
+          <aside className="hidden xl:block w-80 shrink-0">
+            <SuggestedUsers />
+          </aside>
         </div>
       </div>
     );
@@ -668,18 +681,18 @@ export default function ThreadDetail() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
-      <div className="container mx-auto flex">
-        <Sidebar />
 
-        <main className="flex-1 border-x min-h-screen">
+      <div className="container mx-auto flex flex-col lg:flex-row">
+        {/* Left Sidebar (desktop only) */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <Sidebar />
+        </aside>
+
+        {/* Main */}
+        <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
           {/* Header */}
           <div className="sticky top-16 z-10 bg-background/95 backdrop-blur border-b p-4 flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate(-1)}
-            >
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <h1 className="font-semibold text-lg">Thread</h1>
@@ -689,31 +702,26 @@ export default function ThreadDetail() {
           <div className="border-b p-4">
             <div className="flex space-x-3">
               <Avatar className="h-12 w-12">
-                <AvatarImage
-                  src={thread.author?.profilePic}
-                  alt={thread.author?.username}
-                />
+                <AvatarImage src={thread.author?.profilePic} alt={thread.author?.username} />
                 <AvatarFallback>
                   {thread.isAnonymous ? 'A' : getInitials(thread.author?.username)}
                 </AvatarFallback>
               </Avatar>
 
-              <div className="flex-1">
-                <div className="flex items-center space-x-2">
-                  <span className="font-semibold">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <span className="font-semibold truncate">
                     {thread.isAnonymous ? 'Anonymous' : `@${thread.author?.username}`}
                   </span>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">
                     {getTimeAgo(thread.createdAt)}
                   </span>
                 </div>
 
-                <p className="mt-2 text-base whitespace-pre-wrap break-words">
-                  {thread.content}
-                </p>
+                <p className="mt-2 text-base whitespace-pre-wrap break-words">{thread.content}</p>
 
                 {thread.images && thread.images.length > 0 && (
-                  <div className="mt-3 grid gap-2 grid-cols-2">
+                  <div className="mt-3 grid gap-2 grid-cols-1 sm:grid-cols-2">
                     {thread.images.map((image, index) => (
                       <img
                         key={index}
@@ -725,7 +733,7 @@ export default function ThreadDetail() {
                   </div>
                 )}
 
-                <div className="flex items-center space-x-6 mt-4 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4 text-sm text-muted-foreground">
                   <span>❤️ {thread.likeCount || 0} likes</span>
                   <span>💬 {totalComments} comments</span>
                 </div>
@@ -754,10 +762,7 @@ export default function ThreadDetail() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || !commentText.trim()}
-                >
+                <Button type="submit" disabled={isSubmitting || !commentText.trim()}>
                   {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Comment
                 </Button>
@@ -765,8 +770,8 @@ export default function ThreadDetail() {
             </form>
           </div>
 
-          {/* Comments with Infinite Scroll */}
-          <div className="p-4" id="scrollableDiv">
+          {/* Comments (use window scroll for better mobile behavior) */}
+          <div className="p-4">
             {comments.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">
                 No comments yet. Be the first to comment!
@@ -786,10 +791,9 @@ export default function ThreadDetail() {
                     {comments.length > 0 ? 'No more comments' : ''}
                   </p>
                 }
-                scrollableTarget="scrollableDiv"
               >
                 <div className="space-y-4">
-                  {comments.filter(c => c).map((comment) => (
+                  {comments.filter((c) => c).map((comment) => (
                     <CommentItem
                       key={comment._id || comment.id}
                       comment={comment}
@@ -803,7 +807,10 @@ export default function ThreadDetail() {
           </div>
         </main>
 
-        <SuggestedUsers />
+        {/* Right Sidebar (xl+ only) */}
+        <aside className="hidden xl:block w-80 shrink-0">
+          <SuggestedUsers />
+        </aside>
       </div>
     </div>
   );

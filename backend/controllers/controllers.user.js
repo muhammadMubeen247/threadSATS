@@ -2,6 +2,8 @@ const Thread = require('../models/Thread');
 const Comment = require('../models/Comment');
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const cloudinary = require('../config/cloudinary');
+const { Readable } = require('stream');
 
 // Helper function to format thread
 const formatThread = (thread, userId = null) => {
@@ -932,14 +934,65 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
-// module.exports = {
-//   getUserActivity,
-//   followUser,
-//   unfollowUser,
-//   getFollowers,
-//   getFollowing,
-//   searchUsers,
-//   blockUser,
-//   unblockUser,
-//   getBlockedUsers,
-// };
+// @desc    Update current user's profile picture
+// @route   PUT /api/users/me/profile-pic
+// @access  Private
+exports.updateProfilePic = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image uploaded. Send multipart/form-data with field name "image".',
+      });
+    }
+
+    const userId = req.user.id;
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'threadsats/profile_pics',
+          resource_type: 'image',
+          overwrite: true,
+          public_id: `user_${userId}_profile`,
+        },
+        (err, result) => {
+          if (err) return reject(err);
+          resolve(result);
+        }
+      );
+
+      const readable = new Readable();
+      readable.push(req.file.buffer);
+      readable.push(null);
+      readable.pipe(uploadStream);
+    });
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { profilePic: uploadResult.secure_url },
+      { new: true }
+    ).select('username profilePic rollNumber department batch bio');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile picture updated',
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profilePic: updatedUser.profilePic,
+        rollNumber: updatedUser.rollNumber,
+        department: updatedUser.department,
+        batch: updatedUser.batch,
+        bio: updatedUser.bio,
+      },
+    });
+  } catch (error) {
+    console.error('Update profile picture error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating profile picture',
+      error: error.message,
+    });
+  }
+};

@@ -11,9 +11,11 @@ const {
   unblockUser,
   getBlockedUsers,
   getUserProfile,
+  updateProfilePic,
 } = require('../controllers/controllers.user');
 const { protect } = require('../middleware/middleware.auth');
 const { checkBlock } = require('../middleware/checkBlock');
+const { uploadSingle, handleUploadError } = require('../middleware/upload');
 const { param, query, validationResult } = require('express-validator');
 
 // Optional auth middleware
@@ -72,9 +74,10 @@ const validate = (req, res, next) => {
 
 // ✅ Put static routes first
 router.get('/blocked', protect, getBlockedUsers);
-
-// ✅ Search should be public-ish (optional auth), not protected
 router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
+
+// ✅ NEW: profile pic upload (must be before /:userId routes)
+router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateProfilePic);
 
 // ✅ Then put param routes
 router.get('/:userId/activity', protect, userIdValidation, validate, getUserActivity);
