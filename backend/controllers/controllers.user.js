@@ -179,6 +179,19 @@ exports.getUserActivity = async (req, res) => {
       activity.push(...threads.map((t) => formatThread(t, req.user?.id)));
     }
 
+    // ✅ NEW: liked threads
+    if (type === 'likes') {
+      const likedThreads = await Thread.find({
+        likes: userId,          // user has liked this thread
+        isDeleted: false,
+      })
+        .populate('author', 'username profilePic rollNumber department batch')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      activity.push(...likedThreads.map((t) => formatThread(t, req.user?.id)));
+    }
+
     if (type === 'replies' || type === 'all') {
       const comments = await Comment.find({
         author: userId,
@@ -198,14 +211,14 @@ exports.getUserActivity = async (req, res) => {
     total = activity.length;
     const paginatedActivity = activity.slice(skip, skip + limit);
 
-    // Calculate mutual follow status
     const isFollowing = req.user
       ? user.followers.some((f) => f.toString() === req.user.id)
       : false;
 
-    const isMutual = req.user && isFollowing
-      ? user.following.some((f) => f.toString() === req.user.id)
-      : false;
+    const isMutual =
+      req.user && isFollowing
+        ? user.following.some((f) => f.toString() === req.user.id)
+        : false;
 
     res.status(200).json({
       success: true,

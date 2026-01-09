@@ -121,13 +121,13 @@ export default function ProfilePage() {
         </TabsList>
 
         <TabsContent value="threads" className="mt-0">
-          <ThreadsTab username={username} userId={profile?.id} />
+          <ThreadsTab userId={profile?.id} />
         </TabsContent>
         <TabsContent value="replies" className="mt-0">
-          <RepliesTab username={username} />
+          <RepliesTab userId={profile?.id} />
         </TabsContent>
         <TabsContent value="likes" className="mt-0">
-          <LikesTab username={username} />
+          <LikesTab userId={profile?.id} />
         </TabsContent>
         {/* <TabsContent value="media" className="mt-0">
           <MediaTab username={username} />

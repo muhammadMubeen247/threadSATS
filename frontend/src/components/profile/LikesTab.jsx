@@ -1,33 +1,75 @@
 import { useState, useEffect } from 'react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import ThreadCard from '@/components/feed/ThreadCard';
-import api  from '@/api/axios';
+import api from '@/api/axios';
 
-export default function LikesTab({ username }) {
+export default function LikesTab({ userId }) {
   const [threads, setThreads] = useState([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
+    if (!userId) return; // wait until profile loads
+
     setThreads([]);
     setPage(1);
     setHasMore(true);
+    setLoading(true);
+    setErrorMsg('');
     loadLikes(1);
-  }, [username]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const normalizeThread = (t) => {
+    if (!t) return null;
+
+    // backend returns formatted thread objects in `activity` already
+    const id = t.id ?? t._id;
+    if (!id) return null;
+
+    return {
+      ...t,
+      id: String(id),
+      author: t.author
+        ? {
+            ...t.author,
+            id: t.author.id ? String(t.author.id) : t.author._id ? String(t.author._id) : t.author.id,
+          }
+        : t.author,
+    };
+  };
 
   const loadLikes = async (pageNum = page) => {
     try {
-      const res = await api.get(`/users/${username}/likes`, {
-        params: { page: pageNum, limit: 10 }
+      setErrorMsg('');
+
+      const res = await api.get(`/users/${userId}/activity`, {
+        params: { type: 'likes', page: pageNum, limit: 10 },
       });
-      
-      const newThreads = res.threads || [];
-      setThreads(prev => pageNum === 1 ? newThreads : [...prev, ...newThreads]);
-      setHasMore(pageNum < res.pages);
+
+      // ✅ getUserActivity returns { activity: [...] }
+      const activity = Array.isArray(res.activity) ? res.activity : [];
+      const likedThreads = activity
+        .filter((item) => item?.type === 'thread') // ensure we only render threads
+        .map(normalizeThread)
+        .filter(Boolean);
+
+      setThreads((prev) => (pageNum === 1 ? likedThreads : [...prev, ...likedThreads]));
+      setHasMore(pageNum < (res.pages || 0));
       setPage(pageNum + 1);
     } catch (error) {
-      console.error('Load likes error:', error);
+      const status = error?.response?.status;
+
+      // If your /activity route is protected (it is), 401 means auth/cookies/token not being sent.
+      if (status === 401) {
+        setErrorMsg('You must be logged in to view liked threads.');
+      } else {
+        setErrorMsg(error?.response?.data?.message || error?.message || 'Failed to load liked threads.');
+      }
+
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -41,12 +83,12 @@ export default function LikesTab({ username }) {
     );
   }
 
+  if (errorMsg) {
+    return <div className="text-center p-8 text-red-500">{errorMsg}</div>;
+  }
+
   if (threads.length === 0) {
-    return (
-      <div className="text-center p-8 text-muted-foreground">
-        No liked threads yet
-      </div>
-    );
+    return <div className="text-center p-8 text-muted-foreground">No liked threads yet</div>;
   }
 
   return (
@@ -59,11 +101,7 @@ export default function LikesTab({ username }) {
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
         </div>
       }
-      endMessage={
-        <p className="text-center text-muted-foreground p-4">
-          No more liked threads
-        </p>
-      }
+      endMessage={<p className="text-center text-muted-foreground p-4">No more liked threads</p>}
     >
       {threads.map((thread) => (
         <ThreadCard key={thread.id} thread={thread} />
