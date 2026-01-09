@@ -8,6 +8,7 @@ import ThreadsTab from '@/components/profile/ThreadsTab';
 import RepliesTab from '@/components/profile/RepliesTab';
 import LikesTab from '@/components/profile/LikesTab';
 import MediaTab from '@/components/profile/MediaTab';
+import Navbar from '@/components/layout/Navbar';
 
 export default function ProfilePage() {
   const { handle } = useParams(); // "/@mubeen" => handle = "@mubeen"
@@ -96,6 +97,8 @@ export default function ProfilePage() {
     const isOwnProfile = Boolean(currentUserId && profileUserId && String(currentUserId) === String(profileUserId));
 
   return (
+    <div  className="min-h-screen bg-background">
+    <Navbar />
     <div className="max-w-5xl mx-auto">
       <ProfileHeader
         profile={profile}
@@ -134,5 +137,6 @@ export default function ProfilePage() {
         </TabsContent> */}
       </Tabs>
     </div>
+  </div>
   );
 }
