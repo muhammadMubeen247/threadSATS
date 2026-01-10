@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import api from '@/api/axios';
 
@@ -15,29 +22,31 @@ export default function Signup() {
     username: '',
     email: '',
     password: '',
-    rollNumber: '',
-    department: '',
-    batch: '',
   });
 
-  const departments = [
-    'Computer Science',
-    'Software Engineering',
-    'Information Technology',
-    'Electrical Engineering',
-    'Mechanical Engineering',
-    'Civil Engineering',
-  ];
-
-  const batches = ['FA24', 'SP24', 'FA23', 'SP23', 'FA22', 'SP22'];
-
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
+    setFormData((prev) => ({
+      ...prev,
       [e.target.name]: e.target.value,
-    });
+    }));
     setError('');
   };
+
+  // Optional UX: show what will be derived from email (frontend-only preview)
+  const emailPreview = useMemo(() => {
+    const email = formData.email.trim().toLowerCase();
+    const m = email.match(/^(fa|sp)(\d{2})-([a-z]{2,6})-(\d{1,6})@cuilahore\.edu\.pk$/i);
+    if (!m) return null;
+
+    const session = m[1].toUpperCase() + m[2]; // FA22 / SP22
+    const degree = m[3].toUpperCase(); // BCS / BSE
+    const id = m[4];
+    return {
+      batch: session,
+      rollNumber: `${session}-${degree}-${id}`,
+      degree,
+    };
+  }, [formData.email]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,7 +54,13 @@ export default function Signup() {
     setError('');
 
     try {
-      const response = await api.post('/auth/signup', formData);
+      const payload = {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+      };
+
+      const response = await api.post('/auth/signup', payload);
 
       if (response.success) {
         navigate('/verify-otp', {
@@ -65,15 +80,12 @@ export default function Signup() {
         <ThemeToggle />
       </div>
 
-      {/* Responsive centering:
-          - mobile: top aligned with scroll room (form can be taller)
-          - sm+: vertically centered */}
-      <div className="min-h-screen flex items-start sm:items-center justify-center px-4 py-10 sm:py-16">
+      <div className="min-h-screen flex items-start sm:items-center justify-center px-4 py-10 sm:py-16 mt-4">
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
             <CardDescription className="text-center">
-              Join ThreadSATS - COMSATS Social Network
+              Join Bark - COMSATS Social Network
             </CardDescription>
           </CardHeader>
 
@@ -109,12 +121,23 @@ export default function Signup() {
                   id="email"
                   name="email"
                   type="email"
-                  placeholder="fa22-bcs-128@cuilahore.edu.pk"
+                  placeholder="fa22-bcs-112@cuilahore.edu.pk"
                   value={formData.email}
                   onChange={handleChange}
                   required
                   autoComplete="email"
                 />
+
+                {emailPreview ? (
+                  <p className="text-xs text-muted-foreground">
+                    Detected: <span className="font-medium">{emailPreview.rollNumber}</span> • Batch{' '}
+                    <span className="font-medium">{emailPreview.batch}</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Format: fa22-bcs-112@cuilahore.edu.pk (or sp22-bse-112@cuilahore.edu.pk)
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -130,58 +153,6 @@ export default function Signup() {
                   minLength={6}
                   autoComplete="new-password"
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="rollNumber">Roll Number</Label>
-                <Input
-                  id="rollNumber"
-                  name="rollNumber"
-                  type="text"
-                  placeholder="FA22-BCS-128"
-                  value={formData.rollNumber}
-                  onChange={handleChange}
-                  required
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <select
-                  id="department"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleChange}
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((dept) => (
-                    <option key={dept} value={dept}>
-                      {dept}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="batch">Batch</Label>
-                <select
-                  id="batch"
-                  name="batch"
-                  value={formData.batch}
-                  onChange={handleChange}
-                  required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">Select Batch</option>
-                  {batches.map((batch) => (
-                    <option key={batch} value={batch}>
-                      {batch}
-                    </option>
-                  ))}
-                </select>
               </div>
             </CardContent>
 

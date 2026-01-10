@@ -28,7 +28,7 @@ app.use('/api/upload', require('./routes/upload'));
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'ThreadSATS API is running',
+    message: 'Bark API is running',
     timestamp: new Date().toISOString(),
   });
 });

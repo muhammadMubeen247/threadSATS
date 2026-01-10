@@ -12,9 +12,9 @@ const transporter = nodemailer.createTransport({
 
 const sendOTPEmail = async (email, otp) => {
   const mailOptions = {
-    from: `"ThreadSATS" <${process.env.EMAIL_USER}>`,
+    from: `"Bark" <${process.env.EMAIL_USER}>`,
     to: email,
-    subject: 'Verify Your COMSATS Email - ThreadSATS',
+    subject: 'Verify Your COMSATS Email - Bark OTP Verification',
     html: `
       <!DOCTYPE html>
       <html>
@@ -31,11 +31,11 @@ const sendOTPEmail = async (email, otp) => {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🎓 ThreadSATS</h1>
+              <h1>🎓 Bark</h1>
               <p>COMSATS Student Network</p>
             </div>
             <div class="content">
-              <h2>Welcome to ThreadSATS!</h2>
+              <h2>Welcome to Bark!</h2>
               <p>Thank you for joining the COMSATS student community. To complete your registration, please verify your email address.</p>
               
               <p><strong>Your OTP Code:</strong></p>
@@ -45,7 +45,7 @@ const sendOTPEmail = async (email, otp) => {
               <p>If you didn't request this code, please ignore this email.</p>
               
               <div class="footer">
-                <p>© 2025 ThreadSATS - COMSATS University Student Network</p>
+                <p>© 2025 Bark - COMSATS University Student Network</p>
                 <p>This is an automated message, please do not reply.</p>
               </div>
             </div>

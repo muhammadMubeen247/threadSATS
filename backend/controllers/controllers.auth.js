@@ -11,12 +11,75 @@ const generateToken = (id) => {
   });
 };
 
+const DEGREE_TO_DEPARTMENT = {
+  bcs: 'Computer Science',
+  bse: 'Software Engineering',
+  bit: 'Information Technology',
+  // add more mappings if you have them:
+  // bba: 'Business Administration',
+  // bee: 'Electrical Engineering',
+};
+
+function parseComsatsEmail(email = '') {
+  const lower = String(email).trim().toLowerCase();
+
+  // local-part: fa22-bcs-112
+  const [local] = lower.split('@');
+  const parts = (local || '').split('-');
+
+  if (parts.length !== 3) {
+    throw new Error('Email must look like fa22-bcs-112@cuilahore.edu.pk');
+  }
+
+  const [sessionYearRaw, degreeRaw, idRaw] = parts;
+
+  // fa22 / sp22
+  if (!/^(fa|sp)\d{2}$/.test(sessionYearRaw)) {
+    throw new Error('Email must start with faYY or spYY (e.g., fa22 or sp22).');
+  }
+
+  // bcs / bse / bit ...
+  if (!/^[a-z]{2,6}$/.test(degreeRaw)) {
+    throw new Error('Degree code in email is invalid (e.g., bcs, bse).');
+  }
+
+  // 112
+  if (!/^\d{1,6}$/.test(idRaw)) {
+    throw new Error('Student id in email is invalid (e.g., 112).');
+  }
+
+  const batch = sessionYearRaw.toUpperCase();     // FA22
+  const degree = degreeRaw.toUpperCase();         // BCS
+  const rollNumber = `${batch}-${degree}-${idRaw}`;
+
+  const department = DEGREE_TO_DEPARTMENT[degreeRaw];
+  if (!department) {
+    throw new Error(`Unknown degree code "${degreeRaw}". Add it to DEGREE_TO_DEPARTMENT.`);
+  }
+
+  return { batch, rollNumber, department };
+}
+
+
 // @desc    Register new user (send OTP)
 // @route   POST /api/auth/signup
 // @access  Public
 exports.signup = async (req, res) => {
   try {
-    const { username, email, password, rollNumber, department, batch } = req.body;
+    const { username, email, password } = req.body;
+
+    // ✅ derive batch/rollNumber/department from email
+    let derived;
+    try {
+      derived = parseComsatsEmail(email);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: e.message,
+      });
+    }
+
+    const { rollNumber, department, batch } = derived;
 
     // Check if user already exists
     const existingUser = await User.findOne({
@@ -25,22 +88,13 @@ exports.signup = async (req, res) => {
 
     if (existingUser) {
       if (existingUser.email === email) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email already registered',
-        });
+        return res.status(400).json({ success: false, message: 'Email already registered' });
       }
       if (existingUser.username === username) {
-        return res.status(400).json({
-          success: false,
-          message: 'Username already taken',
-        });
+        return res.status(400).json({ success: false, message: 'Username already taken' });
       }
       if (existingUser.rollNumber === rollNumber) {
-        return res.status(400).json({
-          success: false,
-          message: 'Roll number already registered',
-        });
+        return res.status(400).json({ success: false, message: 'Roll number already registered' });
       }
     }
 
@@ -50,40 +104,32 @@ exports.signup = async (req, res) => {
 
     // Generate OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Save OTP
-    await OTP.create({
-      email,
-      otp: otpCode,
-      expiresAt: otpExpiry,
-    });
-
-    // Send OTP email
+    await OTP.create({ email, otp: otpCode, expiresAt: otpExpiry });
     await sendOTPEmail(email, otpCode);
 
-    // Create user (unverified)
+    // ✅ Create user (unverified) with derived fields
     const user = await User.create({
       username,
       email,
       password: hashedPassword,
-      rollNumber: rollNumber.toUpperCase(),
+      rollNumber,
       department,
       batch,
       isVerified: false,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'OTP sent to your email. Please verify to complete registration.',
       userId: user._id,
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error during signup',
-      error: error.message,
     });
   }
 };

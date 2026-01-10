@@ -111,9 +111,9 @@ export default function Navbar() {
         {/* Logo */}
         <Link to="/home" className="flex items-center space-x-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            T
+            B
           </div>
-          <span className="hidden font-bold sm:inline-block">ThreadSATS</span>
+          <span className="hidden font-bold sm:inline-block">Bark</span>
         </Link>
 
         {/* Search Bar */}
@@ -122,7 +122,7 @@ export default function Navbar() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search ThreadSATS..."
+              placeholder="Search Bark..."
               className="pl-10"
               value={query}
               onChange={(e) => setQuery(e.target.value)}

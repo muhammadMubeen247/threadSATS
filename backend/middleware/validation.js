@@ -8,13 +8,14 @@ exports.signupValidation = [
     .withMessage('Username must be between 3 and 30 characters')
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage('Username can only contain letters, numbers, and underscores'),
-  
+
   body('email')
     .trim()
     .isEmail()
     .withMessage('Please provide a valid email')
-    .matches(/^[a-z0-9._%+-]+@cuilahore\.edu\.pk$/i)
-    .withMessage('Please use a valid COMSATS email (e.g., xxxx-xxx-xxx@cuilahore.edu.pk)'),
+    // ✅ enforce faYY/spYY-degree-id@cuilahore.edu.pk
+    .matches(/^(fa|sp)\d{2}-[a-z]{2,6}-\d{1,6}@cuilahore\.edu\.pk$/i)
+    .withMessage('Email must look like fa22-bcs-112@cuilahore.edu.pk'),
 
   body('password')
     .isLength({ min: 6 })
