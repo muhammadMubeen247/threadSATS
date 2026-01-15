@@ -1060,3 +1060,118 @@ exports.updateCoverPhoto = async (req, res) => {
     });
   }
 };
+
+// @desc    Update current user's bio
+// @route   PUT /api/users/me/bio
+// @access  Private
+exports.updateBio = async (req, res) => {
+  try {
+    const bioRaw = req.body?.bio;
+
+    // allow clearing bio by sending ""
+    const bio = typeof bioRaw === 'string' ? bioRaw.trim() : '';
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { bio },
+      { new: true }
+    ).select('username profilePic coverPhoto rollNumber department batch bio');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Bio updated',
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profilePic: updatedUser.profilePic,
+        coverPhoto: updatedUser.coverPhoto,
+        rollNumber: updatedUser.rollNumber,
+        department: updatedUser.department,
+        batch: updatedUser.batch,
+        bio: updatedUser.bio || '',
+      },
+    });
+  } catch (error) {
+    console.error('Update bio error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating bio',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Update current user's username
+// @route   PUT /api/users/me/username
+// @access  Private
+exports.updateUsername = async (req, res) => {
+  try {
+    const usernameRaw = req.body?.username;
+    const username = typeof usernameRaw === 'string' ? usernameRaw.trim().toLowerCase() : '';
+
+    if (!username) {
+      return res.status(400).json({ success: false, message: 'Username is required' });
+    }
+
+    // If unchanged, return current user info
+    const me = await User.findById(req.user.id).select('username profilePic coverPhoto rollNumber department batch bio');
+    if (!me) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (me.username === username) {
+      return res.status(200).json({
+        success: true,
+        message: 'Username updated',
+        user: {
+          id: me._id,
+          username: me.username,
+          profilePic: me.profilePic,
+          coverPhoto: me.coverPhoto,
+          rollNumber: me.rollNumber,
+          department: me.department,
+          batch: me.batch,
+          bio: me.bio || '',
+        },
+      });
+    }
+
+    // Ensure unique
+    const exists = await User.findOne({ username }).select('_id');
+    if (exists) {
+      return res.status(400).json({ success: false, message: 'Username already taken' });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { username },
+      { new: true, runValidators: true }
+    ).select('username profilePic coverPhoto rollNumber department batch bio');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Username updated',
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profilePic: updatedUser.profilePic,
+        coverPhoto: updatedUser.coverPhoto,
+        rollNumber: updatedUser.rollNumber,
+        department: updatedUser.department,
+        batch: updatedUser.batch,
+        bio: updatedUser.bio || '',
+      },
+    });
+  } catch (error) {
+    // Handle unique index race (E11000)
+    if (error?.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Username already taken' });
+    }
+
+    console.error('Update username error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating username',
+      error: error.message,
+    });
+  }
+};

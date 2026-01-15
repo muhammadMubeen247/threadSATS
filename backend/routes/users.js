@@ -13,11 +13,13 @@ const {
   getUserProfile,
   updateProfilePic,
   updateCoverPhoto,
+  updateBio,
+  updateUsername, // ✅ add
 } = require('../controllers/controllers.user');
 const { protect } = require('../middleware/middleware.auth');
 const { checkBlock } = require('../middleware/checkBlock');
 const { uploadSingle, handleUploadError } = require('../middleware/upload');
-const { param, query, validationResult } = require('express-validator');
+const { param, query, body, validationResult } = require('express-validator'); // ✅ add
 
 // Optional auth middleware
 const optionalAuth = async (req, res, next) => {
@@ -59,6 +61,35 @@ const searchValidation = [
     .withMessage('Search query must be between 1 and 50 characters'),
 ];
 
+const bioValidation = [
+  body('bio')
+    .exists()
+    .withMessage('Bio is required')
+    .bail()
+    .isString()
+    .withMessage('Bio must be a string')
+    .bail()
+    .trim()
+    .isLength({ max: 150 })
+    .withMessage('Bio cannot exceed 150 characters'),
+];
+
+const usernameValidation = [
+  body('username')
+    .exists()
+    .withMessage('Username is required')
+    .bail()
+    .isString()
+    .withMessage('Username must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 3, max: 20 })
+    .withMessage('Username must be between 3 and 20 characters')
+    .bail()
+    .matches(/^[a-z0-9_]+$/i)
+    .withMessage('Username can only contain letters, numbers, and underscores'),
+];
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -77,9 +108,11 @@ const validate = (req, res, next) => {
 router.get('/blocked', protect, getBlockedUsers);
 router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
 
-// ✅ NEW: profile pic upload (must be before /:userId routes)
+// ✅ /me routes
 router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateProfilePic);
 router.put('/me/cover-photo', protect, uploadSingle, handleUploadError, updateCoverPhoto);
+router.put('/me/bio', protect, bioValidation, validate, updateBio);
+router.put('/me/username', protect, usernameValidation, validate, updateUsername); // ✅ add
 
 // ✅ Then put param routes
 router.get('/:userId/activity', protect, userIdValidation, validate, getUserActivity);

@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import api from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
 import ProfileHeader from '@/components/profile/ProfileHeader';
+import EditProfileModal from '@/components/profile/EditProfileModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ThreadsTab from '@/components/profile/ThreadsTab';
 import RepliesTab from '@/components/profile/RepliesTab';
@@ -27,6 +28,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -85,6 +87,19 @@ export default function ProfilePage() {
     }
   };
 
+  const handleProfileUpdated = (patch) => {
+    if (!patch) return;
+
+    setProfile((prev) => (prev ? { ...prev, ...patch } : prev));
+
+    // keep auth store (navbar avatar etc.) in sync if helpers exist
+    if (isOwnProfile && typeof authStore.updateUser === 'function') {
+      authStore.updateUser(patch);
+    } else if (isOwnProfile && typeof authStore.setUser === 'function') {
+      authStore.setUser({ ...currentUser, ...patch });
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -119,10 +134,6 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Responsive shell:
-          - Mobile: profile content full width
-          - lg+: left sidebar + main
-          - xl+: show suggested users on right */}
       <div className="container mx-auto flex flex-col lg:flex-row">
         {/* Left Sidebar (desktop only) */}
         <aside className="hidden lg:block w-64 shrink-0">
@@ -135,8 +146,15 @@ export default function ProfilePage() {
             profile={profile}
             isOwnProfile={isOwnProfile}
             onFollowToggle={handleFollowToggle}
-            onEditProfile={() => navigate('/settings')}
+            onEditProfile={() => setIsEditOpen(true)} // ✅ open modal
             onProfilePicUpdated={handleProfilePicUpdated}
+          />
+
+          <EditProfileModal
+            open={isEditOpen}
+            onClose={() => setIsEditOpen(false)}
+            profile={profile}
+            onUpdated={handleProfileUpdated}
           />
 
           <Tabs defaultValue="threads" className="mt-4">
