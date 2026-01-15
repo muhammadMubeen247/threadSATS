@@ -996,3 +996,67 @@ exports.updateProfilePic = async (req, res) => {
     });
   }
 };
+
+// @desc    Update current user's cover photo
+// @route   PUT /api/users/me/cover-photo
+// @access  Private
+exports.updateCoverPhoto = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image uploaded. Send multipart/form-data with field name "image".',
+      });
+    }
+
+    const userId = req.user.id;
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'threadsats/cover_photos',
+          resource_type: 'image',
+          overwrite: true,
+          public_id: `user_${userId}_cover`,
+        },
+        (err, result) => {
+          if (err) return reject(err);
+          resolve(result);
+        }
+      );
+
+      const readable = new Readable();
+      readable.push(req.file.buffer);
+      readable.push(null);
+      readable.pipe(uploadStream);
+    });
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { coverPhoto: uploadResult.secure_url },
+      { new: true }
+    ).select('username profilePic coverPhoto rollNumber department batch bio');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Cover photo updated',
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profilePic: updatedUser.profilePic,
+        coverPhoto: updatedUser.coverPhoto,
+        rollNumber: updatedUser.rollNumber,
+        department: updatedUser.department,
+        batch: updatedUser.batch,
+        bio: updatedUser.bio,
+      },
+    });
+  } catch (error) {
+    console.error('Update cover photo error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating cover photo',
+      error: error.message,
+    });
+  }
+};

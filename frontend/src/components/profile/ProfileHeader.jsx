@@ -129,10 +129,18 @@ export default function ProfileHeader({
   return (
     <div className="border-b bg-card">
       {/* Cover Photo */}
-      <div className="relative h-48 bg-gradient-to-r from-primary/20 to-primary/10">
-        {profile?.coverPhoto && (
-          <img src={profile.coverPhoto} alt="Cover" className="w-full h-full object-cover" />
-        )}
+      <div className="relative h-32 sm:h-40 md:h-48 overflow-hidden bg-gradient-to-r from-primary/20 to-primary/10">
+        {profile?.coverPhoto ? (
+          <img
+            src={profile.coverPhoto}
+            alt="Cover"
+            className="absolute inset-0 w-full h-full object-cover object-center"
+            loading="lazy"
+          />
+        ) : null}
+
+        {/* subtle overlay to keep text/edges nice even with bright images */}
+        <div className="absolute inset-0 bg-black/10" />
       </div>
 
       {/* Profile Info */}

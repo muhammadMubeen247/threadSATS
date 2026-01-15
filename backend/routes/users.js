@@ -12,6 +12,7 @@ const {
   getBlockedUsers,
   getUserProfile,
   updateProfilePic,
+  updateCoverPhoto,
 } = require('../controllers/controllers.user');
 const { protect } = require('../middleware/middleware.auth');
 const { checkBlock } = require('../middleware/checkBlock');
@@ -78,6 +79,7 @@ router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
 
 // ✅ NEW: profile pic upload (must be before /:userId routes)
 router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateProfilePic);
+router.put('/me/cover-photo', protect, uploadSingle, handleUploadError, updateCoverPhoto);
 
 // ✅ Then put param routes
 router.get('/:userId/activity', protect, userIdValidation, validate, getUserActivity);
