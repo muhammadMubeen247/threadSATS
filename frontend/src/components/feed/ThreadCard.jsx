@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Repeat2, MoreVertical, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -10,22 +10,40 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatDistanceToNow } from 'date-fns';
-import {useAuthStore} from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import ImageLightbox from './ImageLightbox';
+import QuoteRepostModal from './QuoteRepostModal';
 
 export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  
-  // Get thread ID
+
+  // Original thread id (used for like/repost/detail nav)
   const threadId = thread?._id || thread?.id;
-  
+
+  // Unique render key (used to update correct card in lists)
+  const updateKey = useMemo(() => {
+    return thread?.type === 'repost' ? thread?.repost?.id : threadId;
+  }, [thread?.type, thread?.repost?.id, threadId]);
+
   const [isLiked, setIsLiked] = useState(thread.isLiked || false);
   const [likesCount, setLikesCount] = useState(thread.likesCount || 0);
+
+  const [isReposted, setIsReposted] = useState(thread.isReposted || false);
+  const [repostCount, setRepostCount] = useState(thread.repostCount || 0);
+
   const [isFollowing, setIsFollowing] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [isQuoteOpen, setIsQuoteOpen] = useState(false); // ✅ add
+
+  useEffect(() => {
+    setIsLiked(thread.isLiked || false);
+    setLikesCount(thread.likesCount || 0);
+    setIsReposted(thread.isReposted || false);
+    setRepostCount(thread.repostCount || 0);
+  }, [thread.isLiked, thread.likesCount, thread.isReposted, thread.repostCount]);
 
   const isOwner = user?._id === thread.author?._id || user?.id === thread.author?.id;
 
@@ -41,31 +59,145 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     }
   };
 
+  // ✅ Embedded original card for quote reposts
+  const renderQuotedPreview = () => {
+    if (thread?.type !== 'quote' || !thread?.quotedThread) return null;
+
+    const qt = thread.quotedThread;
+    const originalId = qt?.id || qt?._id;
+    const originalAuthorUsername = qt?.author?.username;
+    const originalAuthorLink = originalAuthorUsername ? `/@${originalAuthorUsername}` : null;
+    const originalImages = Array.isArray(qt?.images) ? qt.images : [];
+    const firstImageUrl = originalImages?.[0]?.url || originalImages?.[0] || '';
+
+    return (
+      <div
+        className="mt-3 rounded-xl border bg-background/50 hover:bg-muted/30 transition-colors overflow-hidden"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (originalId) navigate(`/thread/${originalId}`);
+        }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            if (originalId) navigate(`/thread/${originalId}`);
+          }
+        }}
+      >
+        <div className="p-3">
+          <div className="flex gap-3">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorUsername || 'User'} />
+              <AvatarFallback>{getInitials(originalAuthorUsername)}</AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0">
+                {originalAuthorLink ? (
+                  <Link
+                    to={originalAuthorLink}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-sm font-semibold hover:underline truncate"
+                  >
+                    @{originalAuthorUsername}
+                  </Link>
+                ) : (
+                  <span className="text-sm font-semibold">Anonymous</span>
+                )}
+
+                <span className="text-xs text-muted-foreground">•</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {getTimeAgo(qt?.createdAt)}
+                </span>
+              </div>
+
+              {/* Original content preview */}
+              <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                {qt?.content}
+              </p>
+
+              {/* Optional thumbnail (like the screenshot’s embedded card) */}
+              {firstImageUrl ? (
+                <div className="mt-2 rounded-lg overflow-hidden border bg-muted">
+                  <img
+                    src={firstImageUrl}
+                    alt="Quoted thread media"
+                    className="w-full max-h-56 object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const handleLike = async (e) => {
     e.stopPropagation();
-    
+
     if (!threadId) {
       console.error('Thread ID is missing:', thread);
       return;
     }
-    
+
     try {
       await api.put(`/threads/${threadId}/like`);
-      setIsLiked(!isLiked);
-      setLikesCount(isLiked ? likesCount - 1 : likesCount + 1);
+      setIsLiked((v) => !v);
+      setLikesCount((c) => (isLiked ? c - 1 : c + 1));
+
+      onUpdate?.(updateKey, {
+        isLiked: !isLiked,
+        likesCount: isLiked ? likesCount - 1 : likesCount + 1,
+      });
     } catch (error) {
       console.error('Failed to like thread:', error);
     }
   };
 
+  // For quote cards, repost should target the original thread (quotedThread)
+  const repostTargetId =
+    thread?.type === 'quote' ? (thread?.quotedThread?.id || thread?.quotedThread?._id) : threadId;
+
+  const handleRepost = async (e) => {
+    e.stopPropagation();
+
+    if (!repostTargetId) {
+      console.error('Repost target ID is missing:', thread);
+      return;
+    }
+
+    try {
+      const res = await api.put(`/threads/${repostTargetId}/repost`);
+      const nextIsReposted = !!res?.isReposted;
+
+      const nextCount = nextIsReposted ? repostCount + 1 : Math.max(0, repostCount - 1);
+
+      setIsReposted(nextIsReposted);
+      setRepostCount(nextCount);
+
+      onUpdate?.(updateKey, {
+        isReposted: nextIsReposted,
+        repostCount: nextCount,
+      });
+    } catch (error) {
+      console.error('Failed to repost:', error);
+    }
+  };
+
   const handleDelete = async (e) => {
     e.stopPropagation();
-    
+
     if (!threadId) {
       console.error('Thread ID is missing:', thread);
       return;
     }
-    
+
     if (window.confirm('Are you sure you want to delete this thread?')) {
       try {
         await api.delete(`/threads/${threadId}`);
@@ -78,14 +210,14 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
   const handleFollow = async (e) => {
     e.stopPropagation();
-    
+
     const authorId = thread.author?._id || thread.author?.id;
-    
+
     if (!authorId) {
       console.error('Author ID is missing:', thread);
       return;
     }
-    
+
     try {
       if (isFollowing) {
         await api.delete(`/users/${authorId}/unfollow`);
@@ -99,9 +231,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   };
 
   const handleThreadClick = () => {
-    if (threadId) {
-      navigate(`/thread/${threadId}`);
-    }
+    if (threadId) navigate(`/thread/${threadId}`);
   };
 
   const handleImageClick = (e, index) => {
@@ -110,49 +240,73 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     setLightboxOpen(true);
   };
 
-  // Get image URLs for lightbox
-  const imageUrls = thread.images?.map(img => img.url || img) || [];
+  const imageUrls = thread.images?.map((img) => img.url || img) || [];
+
+  const isAnonymous = !!thread.isAnonymous;
+  const authorLink = isAnonymous ? null : `/@${thread.author?.username}`;
 
   return (
     <>
       <div
         className="border-b p-4 hover:bg-muted/50 cursor-pointer transition-colors"
-        onClick={handleThreadClick}
+        onClick={() => {
+          if (threadId) navigate(`/thread/${threadId}`);
+        }}
       >
+        {/* Repost banner */}
+        {thread?.type === 'repost' && thread?.repostedBy?.username ? (
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Repeat2 className="h-4 w-4" />
+            <span>Reposted by</span>
+            <Link
+              to={`/@${thread.repostedBy.username}`}
+              onClick={(e) => e.stopPropagation()}
+              className="hover:underline"
+            >
+              @{thread.repostedBy.username}
+            </Link>
+          </div>
+        ) : null}
+
         <div className="flex space-x-3">
           {/* Avatar */}
-          <Link
-            to={`/@${thread.author?.username}`}
-            onClick={(e) => e.stopPropagation()}
-          >
+          {authorLink ? (
+            <Link to={authorLink} onClick={(e) => e.stopPropagation()}>
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={thread.author?.profilePic} alt={thread.author?.username} />
+                <AvatarFallback>{getInitials(thread.author?.username)}</AvatarFallback>
+              </Avatar>
+            </Link>
+          ) : (
             <Avatar className="h-10 w-10">
-              <AvatarImage
-                src={thread.author?.profilePic}
-                alt={thread.author?.username}
-              />
-              <AvatarFallback>
-                {thread.isAnonymous ? 'A' : getInitials(thread.author?.username)}
-              </AvatarFallback>
+              <AvatarImage src={thread.author?.profilePic} alt="Anonymous" />
+              <AvatarFallback>A</AvatarFallback>
             </Avatar>
-          </Link>
+          )}
 
           {/* Content */}
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Link
-                  to={`/@${thread.author?.username}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="font-semibold hover:underline"
-                >
-                  {thread.isAnonymous ? 'Anonymous' : `@${thread.author?.username}`}
-                </Link>
+              <div className="flex items-center space-x-2 min-w-0">
+                {authorLink ? (
+                  <Link
+                    to={authorLink}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-semibold hover:underline truncate"
+                  >
+                    @{thread.author?.username}
+                  </Link>
+                ) : (
+                  <span className="font-semibold">Anonymous</span>
+                )}
+
                 <span className="text-sm text-muted-foreground">•</span>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
                   {getTimeAgo(thread.createdAt)}
                 </span>
-                {!isOwner && !thread.isAnonymous && (
+
+                {!isOwner && !isAnonymous && (
                   <>
                     <span className="text-sm text-muted-foreground">•</span>
                     <Button
@@ -186,21 +340,22 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
             </div>
 
             {/* Thread Content */}
-            <p className="mt-2 text-sm whitespace-pre-wrap break-words">
-              {thread.content}
-            </p>
+            <p className="mt-2 text-sm whitespace-pre-wrap break-words">{thread.content}</p>
 
-            {/* Images */}
+            {/* ✅ Embedded original preview for quote repost */}
+            {renderQuotedPreview()}
+
+            {/* Images (for normal thread / quote content images if you add later) */}
             {thread.images && Array.isArray(thread.images) && thread.images.length > 0 && (
               <div
                 className={`mt-3 grid gap-2 ${
                   thread.images.length === 1
                     ? 'grid-cols-1'
                     : thread.images.length === 2
-                    ? 'grid-cols-2'
-                    : thread.images.length === 3
-                    ? 'grid-cols-3'
-                    : 'grid-cols-2'
+                      ? 'grid-cols-2'
+                      : thread.images.length === 3
+                        ? 'grid-cols-3'
+                        : 'grid-cols-2'
                 }`}
               >
                 {thread.images.map((image, index) => (
@@ -242,9 +397,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (threadId) {
-                    navigate(`/thread/${threadId}`);
-                  }
+                  if (threadId) navigate(`/thread/${threadId}`);
                 }}
                 className="flex items-center space-x-2 text-muted-foreground hover:text-blue-500 transition-colors group"
               >
@@ -252,17 +405,58 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 <span className="text-sm">{thread.commentCount || 0}</span>
               </button>
 
-              {/* Repost (placeholder) */}
-              <button
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center space-x-2 text-muted-foreground hover:text-green-500 transition-colors group"
-              >
-                <Repeat2 className="h-5 w-5 group-hover:scale-110 transition-transform" />
-              </button>
+              {/* Repost menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className={`flex items-center space-x-2 transition-colors group ${
+                      isReposted ? 'text-green-500' : 'text-muted-foreground hover:text-green-500'
+                    }`}
+                  >
+                    <Repeat2 className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                    <span className="text-sm">{repostCount}</span>
+                  </button>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onClick={(e) => handleRepost(e)}
+                    className="cursor-pointer"
+                  >
+                    Repost
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsQuoteOpen(true);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    Quote
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Quote Repost Modal */}
+      <QuoteRepostModal
+        open={isQuoteOpen}
+        onClose={() => setIsQuoteOpen(false)}
+        threadId={repostTargetId || threadId}
+        onCreated={(created) => {
+          // Quote increases original repostCount; keep count in sync
+          setRepostCount((c) => c + 1);
+          onUpdate?.(updateKey, { repostCount: repostCount + 1 });
+
+          // Optional: go to the newly created quote thread detail
+          const createdId = created?.id || created?._id;
+          if (createdId) navigate(`/thread/${createdId}`);
+        }}
+      />
 
       {/* Image Lightbox */}
       {lightboxOpen && (

@@ -118,13 +118,31 @@ export default function Home() {
         }
       >
         <div className="divide-y">
-          {threads.map((thread) => (
-            <ThreadCard
-              key={thread._id || thread.id}
-              thread={thread}
-              onDelete={handleThreadDeleted}
-            />
-          ))}
+          {threads.map((thread) => {
+            const key =
+              thread?.type === 'repost'
+                ? thread?.repost?.id
+                : thread?._id || thread?.id;
+
+            return (
+              <ThreadCard
+                key={key}
+                thread={thread}
+                onDelete={handleThreadDeleted}
+                onUpdate={(updateKey, patch) => {
+                  setThreads((prev) =>
+                    prev.map((t) => {
+                      const tKey =
+                        t?.type === 'repost' ? t?.repost?.id : t?._id || t?.id;
+
+                      if (tKey !== updateKey) return t;
+                      return { ...t, ...patch };
+                    })
+                  );
+                }}
+              />
+            );
+          })}
         </div>
       </InfiniteScroll>
     );

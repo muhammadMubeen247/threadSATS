@@ -4,9 +4,14 @@ const threadSchema = new mongoose.Schema(
   {
     content: {
       type: String,
-      required: [true, 'Thread content is required'],
       trim: true,
       maxlength: [500, 'Thread cannot exceed 500 characters'],
+      // ✅ require content for normal threads AND quote reposts
+      required: function () {
+        const t = this.type || 'thread';
+        return t === 'thread' || t === 'quote';
+      },
+      default: '',
     },
     author: {
       type: mongoose.Schema.Types.ObjectId,
@@ -49,16 +54,43 @@ const threadSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // ✅ distinguishes normal posts vs reposts vs quote reposts
+    type: {
+      type: String,
+      enum: ['thread', 'repost', 'quote'],
+      default: 'thread',
+      index: true,
+    },
+
+    repostOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Thread',
+      default: null,
+      index: true,
+    },
+
+    repostCount: {
+      type: Number,
+      default: 0,
+    },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 // Index for faster queries
 threadSchema.index({ author: 1, createdAt: -1 });
 threadSchema.index({ createdAt: -1 });
 threadSchema.index({ isDeleted: 1 });
+
+// ✅ keep uniqueness ONLY for plain repost toggle
+threadSchema.index(
+  { author: 1, repostOf: 1, type: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { type: 'repost', isDeleted: false },
+  }
+);
 
 // Virtual for likes count
 threadSchema.virtual('likesCount').get(function () {
