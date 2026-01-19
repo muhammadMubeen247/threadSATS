@@ -359,68 +359,51 @@ exports.getThreadById = async (req, res) => {
     const { threadId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid thread ID',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const thread = await Thread.findOne({
-      _id: threadId,
-      isDeleted: false,
-    }).populate('author', 'username profilePic rollNumber department batch');
+    const doc = await Thread.findOne({ _id: threadId, isDeleted: false })
+      .populate('author', 'username profilePic rollNumber department batch')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
+      })
+      .lean();
 
-    if (!thread) {
-      return res.status(404).json({
-        success: false,
-        message: 'Thread not found',
-      });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Thread not found' });
     }
 
-    // Format response
-    const responseThread = {
-      id: thread._id,
-      content: thread.content,
-      isAnonymous: thread.isAnonymous,
-      images: thread.images,
-      likes: thread.likes,
-      likesCount: thread.likesCount,
-      commentCount: thread.commentCount,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-    };
-
-    if (!thread.isAnonymous && thread.author) {
-      responseThread.author = {
-        id: thread.author._id,
-        username: thread.author.username,
-        profilePic: thread.author.profilePic,
-        rollNumber: thread.author.rollNumber,
-        department: thread.author.department,
-        batch: thread.author.batch,
-      };
-    } else {
-      responseThread.author = {
-        username: 'Anonymous',
-        profilePic: '',
-        department: 'COMSATS Student',
-      };
-    }
-
+    // isReposted = "have I reposted THIS item?"
+    const repostedTargetIdSet = new Set();
     if (req.user) {
-      responseThread.isLiked = thread.likes.some(
-        (likeId) => likeId.toString() === req.user.id
-      );
-      responseThread.isOwner = thread.author._id.toString() === req.user.id;
+      const myRepost = await Thread.findOne({
+        type: 'repost',
+        author: req.user.id,
+        repostOf: threadId,
+        isDeleted: false,
+      })
+        .select('_id')
+        .lean();
+
+      if (myRepost) repostedTargetIdSet.add(threadId.toString());
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      thread: responseThread,
+      thread: formatFeedItem(doc, req.user?.id, repostedTargetIdSet),
     });
   } catch (error) {
     console.error('Get thread error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while fetching thread',
       error: error.message,

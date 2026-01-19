@@ -1,6 +1,14 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, MoreVertical, Trash2, Heart, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Loader2,
+  MoreVertical,
+  Trash2,
+  Heart,
+  MessageCircle,
+  Repeat2,
+} from 'lucide-react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
@@ -17,28 +25,30 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
+import QuoteRepostModal from '@/components/feed/QuoteRepostModal';
 
 export default function ThreadDetail() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  
+
   const [thread, setThread] = useState(null);
   const [comments, setComments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   // Pagination for top-level comments
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [totalComments, setTotalComments] = useState(0);
-  
+
   // Reply state - now includes parent tracking
   const [replyingTo, setReplyingTo] = useState(null); // { commentId, parentCommentId }
   const [replyText, setReplyText] = useState('');
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
-  
+
   // Loaded replies cache (per comment)
   const [loadedReplies, setLoadedReplies] = useState({});
   const [replyPages, setReplyPages] = useState({});
@@ -46,320 +56,21 @@ export default function ThreadDetail() {
   const [loadingReplies, setLoadingReplies] = useState({});
   const [expandedComments, setExpandedComments] = useState({});
 
-  // Initial load
+  const [quoteOpen, setQuoteOpen] = useState(false);
+
+  const threadType = thread?.type || 'thread';
+
+  const isOwner = useMemo(() => {
+    const authorId = thread?.author?._id || thread?.author?.id || thread?.author?.id;
+    return !!authorId && !!user && (user._id === authorId || user.id === authorId);
+  }, [thread, user]);
+
   useEffect(() => {
     fetchThreadAndInitialComments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
-  const fetchThreadAndInitialComments = async () => {
-    setIsLoading(true);
-    try {
-      // Fetch thread details
-      const threadResponse = await api.get(`/threads/${threadId}`);
-      setThread(threadResponse.thread);
-      
-      // Fetch first page of comments
-      const commentsResponse = await api.get(`/threads/${threadId}/comments?page=1&limit=20`);
-      
-      setComments(commentsResponse.comments || []);
-      setTotalComments(commentsResponse.total || 0);
-      setHasMore(commentsResponse.page < commentsResponse.pages);
-      setPage(2); // Next page to load
-      
-    } catch (error) {
-      console.error('Failed to fetch thread:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Load more top-level comments (infinite scroll)
-  const loadMoreComments = async () => {
-    if (!hasMore || isLoading) return;
-
-    try {
-      const response = await api.get(`/threads/${threadId}/comments?page=${page}&limit=20`);
-      
-      setComments(prev => [...prev, ...(response.comments || [])]);
-      setHasMore(response.page < response.pages);
-      setPage(prev => prev + 1);
-      
-    } catch (error) {
-      console.error('Failed to load more comments:', error);
-    }
-  };
-
-  // Load replies for a specific comment
-  const loadReplies = async (commentId) => {
-    const currentPage = replyPages[commentId] || 1;
-    
-    setLoadingReplies(prev => ({ ...prev, [commentId]: true }));
-    
-    try {
-      const response = await api.get(`/comments/${commentId}/replies?page=${currentPage}&limit=10`);
-      
-      // Append to existing loaded replies (CACHE)
-      setLoadedReplies(prev => ({
-        ...prev,
-        [commentId]: [...(prev[commentId] || []), ...(response.replies || [])]
-      }));
-      
-      setReplyPages(prev => ({
-        ...prev,
-        [commentId]: currentPage + 1
-      }));
-      
-      setHasMoreReplies(prev => ({
-        ...prev,
-        [commentId]: response.hasMore
-      }));
-      
-      // Mark as expanded
-      setExpandedComments(prev => ({ ...prev, [commentId]: true }));
-      
-    } catch (error) {
-      console.error('Failed to load replies:', error);
-    } finally {
-      setLoadingReplies(prev => ({ ...prev, [commentId]: false }));
-    }
-  };
-
-  // Toggle expand/collapse replies
-  const toggleReplies = (commentId) => {
-    setExpandedComments(prev => ({
-      ...prev,
-      [commentId]: !prev[commentId]
-    }));
-  };
-
-  // Create top-level comment
-  const handleCommentSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!commentText.trim()) return;
-
-    setIsSubmitting(true);
-    try {
-      const response = await api.post(`/threads/${threadId}/comments`, {
-        content: commentText.trim(),
-      });
-
-      if (response.success) {
-        // Add new comment to top of list
-        setComments(prev => [response.comment, ...prev]);
-        setCommentText('');
-        setTotalComments(prev => prev + 1);
-        
-        // Update thread comment count
-        setThread(prev => ({
-          ...prev,
-          commentCount: (prev.commentCount || 0) + 1
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to post comment:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Recursive function to add reply to nested structure in loadedReplies
-  const addReplyToLoadedReplies = (replies, targetCommentId, newReply) => {
-    return replies.map(reply => {
-      const replyId = reply._id || reply.id;
-      
-      if (replyId === targetCommentId) {
-        // Found the target - add to its replies (create array if doesn't exist)
-        return {
-          ...reply,
-          replies: [newReply, ...(reply.replies || [])],
-          replyCount: (reply.replyCount || 0) + 1
-        };
-      }
-      
-      // Check nested replies recursively
-      if (reply.replies && reply.replies.length > 0) {
-        return {
-          ...reply,
-          replies: addReplyToLoadedReplies(reply.replies, targetCommentId, newReply)
-        };
-      }
-      
-      return reply;
-    });
-  };
-
-  // Reply to a comment (handles both top-level and nested)
-  const handleReplySubmit = async (commentId, parentCommentId) => {
-    if (!replyText.trim()) return;
-
-    setIsSubmittingReply(true);
-    try {
-      const response = await api.post(`/comments/${commentId}/reply`, {
-        content: replyText.trim(),
-      });
-
-      if (response.success) {
-        const newReply = response.comment;
-        
-        // If replying to a top-level comment, add to its loadedReplies
-        if (!parentCommentId || parentCommentId === commentId) {
-          setLoadedReplies(prev => ({
-            ...prev,
-            [commentId]: [newReply, ...(prev[commentId] || [])]
-          }));
-          
-          // Update reply count in top-level comments
-          setComments(prev => prev.map(c => {
-            if ((c._id || c.id) === commentId) {
-              return { ...c, replyCount: (c.replyCount || 0) + 1 };
-            }
-            return c;
-          }));
-        } else {
-          // Replying to a nested reply - need to update within the parent's loaded replies
-          setLoadedReplies(prev => ({
-            ...prev,
-            [parentCommentId]: addReplyToLoadedReplies(prev[parentCommentId] || [], commentId, newReply)
-          }));
-        }
-        
-        setReplyText('');
-        setReplyingTo(null);
-        
-        // Ensure parent comment is expanded
-        setExpandedComments(prev => ({ ...prev, [parentCommentId || commentId]: true }));
-      }
-    } catch (error) {
-      console.error('Failed to post reply:', error);
-    } finally {
-      setIsSubmittingReply(false);
-    }
-  };
-
-  // Recursive function to update like status
-  const updateLikeInReplies = (replies, targetId, isLiked, likesCount) => {
-    return replies.map(reply => {
-      const replyId = reply._id || reply.id;
-      
-      if (replyId === targetId) {
-        return { ...reply, isLiked, likesCount };
-      }
-      
-      if (reply.replies && reply.replies.length > 0) {
-        return {
-          ...reply,
-          replies: updateLikeInReplies(reply.replies, targetId, isLiked, likesCount)
-        };
-      }
-      
-      return reply;
-    });
-  };
-
-  // Toggle like on comment/reply
-  const handleLikeComment = async (commentId) => {
-    try {
-      // Optimistic update
-      const updateComment = (c) => {
-        const id = c._id || c.id;
-        if (id === commentId) {
-          return {
-            ...c,
-            isLiked: !c.isLiked,
-            likesCount: (c.likesCount || 0) + (c.isLiked ? -1 : 1)
-          };
-        }
-        return c;
-      };
-
-      // Update in comments list
-      setComments(prev => prev.map(updateComment));
-      
-      // Update in loaded replies recursively
-      setLoadedReplies(prev => {
-        const newReplies = {};
-        Object.keys(prev).forEach(key => {
-          const comment = prev[key];
-          const updated = comment.map(updateComment);
-          // Also update nested replies
-          newReplies[key] = updated.map(r => {
-            if (r.replies && r.replies.length > 0) {
-              return {
-                ...r,
-                replies: updateLikeInReplies(r.replies, commentId, !r.isLiked, (r.likesCount || 0) + (r.isLiked ? -1 : 1))
-              };
-            }
-            return r;
-          });
-        });
-        return newReplies;
-      });
-
-      // Send to backend
-      const response = await api.put(`/comments/${commentId}/like`);
-      
-      if (response.success) {
-        // Backend confirmed - could sync here if needed
-      }
-      
-    } catch (error) {
-      console.error('Failed to like comment:', error);
-      // Revert optimistic update on error
-      fetchThreadAndInitialComments();
-    }
-  };
-
-  // Recursive delete helper
-  const deleteFromReplies = (replies, targetId) => {
-    return replies
-      .filter(reply => (reply._id || reply.id) !== targetId)
-      .map(reply => {
-        if (reply.replies && reply.replies.length > 0) {
-          return {
-            ...reply,
-            replies: deleteFromReplies(reply.replies, targetId)
-          };
-        }
-        return reply;
-      });
-  };
-
-  // Delete comment
-  const handleDeleteComment = async (commentId) => {
-    if (!window.confirm('Are you sure you want to delete this comment?')) return;
-
-    try {
-      await api.delete(`/comments/${commentId}`);
-      
-      // Remove from comments list
-      setComments(prev => prev.filter(c => (c._id || c.id) !== commentId));
-      
-      // Remove from loaded replies recursively
-      setLoadedReplies(prev => {
-        const newReplies = {};
-        Object.keys(prev).forEach(key => {
-          newReplies[key] = deleteFromReplies(prev[key], commentId);
-        });
-        return newReplies;
-      });
-      
-      setTotalComments(prev => Math.max(0, prev - 1));
-      
-      // Update thread comment count
-      setThread(prev => ({
-        ...prev,
-        commentCount: Math.max(0, (prev.commentCount || 0) - 1)
-      }));
-      
-    } catch (error) {
-      console.error('Failed to delete comment:', error);
-    }
-  };
-
-  const getInitials = (username) => {
-    return username?.substring(0, 2).toUpperCase() || 'A';
-  };
+  const getInitials = (username) => username?.substring(0, 2).toUpperCase() || 'A';
 
   const getTimeAgo = (date) => {
     try {
@@ -369,52 +80,385 @@ export default function ThreadDetail() {
     }
   };
 
-  // Component for rendering a single comment
-  const CommentItem = ({ comment, depth = 0, parentCommentId = null }) => {
-    // Safety check
+  const fetchThreadAndInitialComments = async () => {
+    setIsLoading(true);
+    try {
+      const threadResponse = await api.get(`/threads/${threadId}`);
+      setThread(threadResponse.thread);
+
+      const commentsResponse = await api.get(`/threads/${threadId}/comments?page=1&limit=20`);
+      setComments(commentsResponse.comments || []);
+      setTotalComments(commentsResponse.total || 0);
+      setHasMore(commentsResponse.page < commentsResponse.pages);
+      setPage(2);
+    } catch (error) {
+      console.error('Failed to fetch thread:', error);
+      setThread(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadMoreComments = async () => {
+    if (!hasMore || isLoading) return;
+    try {
+      const response = await api.get(`/threads/${threadId}/comments?page=${page}&limit=20`);
+      setComments((prev) => [...prev, ...(response.comments || [])]);
+      setHasMore(response.page < response.pages);
+      setPage((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to load more comments:', error);
+    }
+  };
+
+  const handleLikeThread = async () => {
+    if (!thread?.id) return;
+
+    // Optimistic
+    setThread((prev) => {
+      if (!prev) return prev;
+      const nextIsLiked = !prev.isLiked;
+      const nextLikes = (prev.likesCount || 0) + (prev.isLiked ? -1 : 1);
+      return { ...prev, isLiked: nextIsLiked, likesCount: Math.max(0, nextLikes) };
+    });
+
+    try {
+      const res = await api.put(`/threads/${thread.id}/like`);
+      setThread((prev) => (prev ? { ...prev, isLiked: !!res.isLiked, likesCount: res.likesCount } : prev));
+    } catch (error) {
+      console.error('Failed to like thread:', error);
+      await fetchThreadAndInitialComments();
+    }
+  };
+
+  const handleToggleRepost = async () => {
+    if (!thread?.id) return;
+
+    // Optimistic
+    setThread((prev) => {
+      if (!prev) return prev;
+      const nextIsReposted = !prev.isReposted;
+      const nextCount = (prev.repostCount || 0) + (prev.isReposted ? -1 : 1);
+      return { ...prev, isReposted: nextIsReposted, repostCount: Math.max(0, nextCount) };
+    });
+
+    try {
+      const res = await api.put(`/threads/${thread.id}/repost`);
+      setThread((prev) => (prev ? { ...prev, isReposted: !!res.isReposted } : prev));
+    } catch (error) {
+      console.error('Failed to repost:', error);
+      await fetchThreadAndInitialComments();
+    }
+  };
+
+  const handleDeleteThread = async () => {
+    if (!thread?.id) return;
+    if (!window.confirm('Are you sure you want to delete this thread?')) return;
+
+    try {
+      await api.delete(`/threads/${thread.id}`);
+      navigate(-1);
+    } catch (error) {
+      console.error('Failed to delete thread:', error);
+    }
+  };
+
+  // Load replies for a specific comment
+  const loadReplies = async (commentId) => {
+    const currentPage = replyPages[commentId] || 1;
+    setLoadingReplies((prev) => ({ ...prev, [commentId]: true }));
+
+    try {
+      const response = await api.get(`/comments/${commentId}/replies?page=${currentPage}&limit=10`);
+
+      setLoadedReplies((prev) => ({
+        ...prev,
+        [commentId]: [...(prev[commentId] || []), ...(response.replies || [])],
+      }));
+
+      setReplyPages((prev) => ({ ...prev, [commentId]: currentPage + 1 }));
+
+      setHasMoreReplies((prev) => ({ ...prev, [commentId]: response.hasMore }));
+
+      setExpandedComments((prev) => ({ ...prev, [commentId]: true }));
+    } catch (error) {
+      console.error('Failed to load replies:', error);
+    } finally {
+      setLoadingReplies((prev) => ({ ...prev, [commentId]: false }));
+    }
+  };
+
+  const toggleReplies = (commentId) => {
+    setExpandedComments((prev) => ({ ...prev, [commentId]: !prev[commentId] }));
+  };
+
+  const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await api.post(`/threads/${threadId}/comments`, { content: commentText.trim() });
+
+      if (response.success) {
+        setComments((prev) => [response.comment, ...prev]);
+        setCommentText('');
+        setTotalComments((prev) => prev + 1);
+        setThread((prev) => (prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev));
+      }
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const addReplyToLoadedReplies = (replies, targetCommentId, newReply) => {
+    return replies.map((reply) => {
+      const replyId = reply._id || reply.id;
+
+      if (replyId === targetCommentId) {
+        return {
+          ...reply,
+          replies: [newReply, ...(reply.replies || [])],
+          replyCount: (reply.replyCount || 0) + 1,
+        };
+      }
+
+      if (reply.replies && reply.replies.length > 0) {
+        return { ...reply, replies: addReplyToLoadedReplies(reply.replies, targetCommentId, newReply) };
+      }
+
+      return reply;
+    });
+  };
+
+  const handleReplySubmit = async (commentId, parentCommentId) => {
+    if (!replyText.trim()) return;
+
+    setIsSubmittingReply(true);
+    try {
+      const response = await api.post(`/comments/${commentId}/reply`, { content: replyText.trim() });
+
+      if (response.success) {
+        const newReply = response.comment;
+
+        if (!parentCommentId || parentCommentId === commentId) {
+          setLoadedReplies((prev) => ({
+            ...prev,
+            [commentId]: [newReply, ...(prev[commentId] || [])],
+          }));
+
+          setComments((prev) =>
+            prev.map((c) => ((c._id || c.id) === commentId ? { ...c, replyCount: (c.replyCount || 0) + 1 } : c))
+          );
+        } else {
+          setLoadedReplies((prev) => ({
+            ...prev,
+            [parentCommentId]: addReplyToLoadedReplies(prev[parentCommentId] || [], commentId, newReply),
+          }));
+        }
+
+        setReplyText('');
+        setReplyingTo(null);
+        setExpandedComments((prev) => ({ ...prev, [parentCommentId || commentId]: true }));
+      }
+    } catch (error) {
+      console.error('Failed to post reply:', error);
+    } finally {
+      setIsSubmittingReply(false);
+    }
+  };
+
+  const updateLikeInReplies = (replies, targetId, isLiked, likesCount) => {
+    return replies.map((reply) => {
+      const replyId = reply._id || reply.id;
+
+      if (replyId === targetId) return { ...reply, isLiked, likesCount };
+
+      if (reply.replies && reply.replies.length > 0) {
+        return { ...reply, replies: updateLikeInReplies(reply.replies, targetId, isLiked, likesCount) };
+      }
+
+      return reply;
+    });
+  };
+
+  const handleLikeComment = async (commentId) => {
+    try {
+      const updateComment = (c) => {
+        const id = c._id || c.id;
+        if (id === commentId) {
+          return {
+            ...c,
+            isLiked: !c.isLiked,
+            likesCount: (c.likesCount || 0) + (c.isLiked ? -1 : 1),
+          };
+        }
+        return c;
+      };
+
+      setComments((prev) => prev.map(updateComment));
+
+      setLoadedReplies((prev) => {
+        const next = {};
+        Object.keys(prev).forEach((key) => {
+          const arr = prev[key];
+          const updated = arr.map(updateComment);
+          next[key] = updated.map((r) => {
+            if (r.replies && r.replies.length > 0) {
+              return {
+                ...r,
+                replies: updateLikeInReplies(
+                  r.replies,
+                  commentId,
+                  !r.isLiked,
+                  (r.likesCount || 0) + (r.isLiked ? -1 : 1)
+                ),
+              };
+            }
+            return r;
+          });
+        });
+        return next;
+      });
+
+      await api.put(`/comments/${commentId}/like`);
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      fetchThreadAndInitialComments();
+    }
+  };
+
+  const deleteFromReplies = (replies, targetId) => {
+    return replies
+      .filter((reply) => (reply._id || reply.id) !== targetId)
+      .map((reply) => {
+        if (reply.replies && reply.replies.length > 0) {
+          return { ...reply, replies: deleteFromReplies(reply.replies, targetId) };
+        }
+        return reply;
+      });
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!window.confirm('Are you sure you want to delete this comment?')) return;
+
+    try {
+      await api.delete(`/comments/${commentId}`);
+
+      setComments((prev) => prev.filter((c) => (c._id || c.id) !== commentId));
+
+      setLoadedReplies((prev) => {
+        const next = {};
+        Object.keys(prev).forEach((key) => {
+          next[key] = deleteFromReplies(prev[key], commentId);
+        });
+        return next;
+      });
+
+      setTotalComments((prev) => Math.max(0, prev - 1));
+      setThread((prev) => (prev ? { ...prev, commentCount: Math.max(0, (prev.commentCount || 0) - 1) } : prev));
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+    }
+  };
+
+  const EmbeddedThreadPreview = ({ item, onOpen }) => {
+    if (!item) return null;
+
+    const authorUsername = item?.author?.username;
+    const authorLink = authorUsername ? `/@${authorUsername}` : null;
+    const images = Array.isArray(item?.images) ? item.images : [];
+    const firstImage = images?.[0]?.url || images?.[0] || '';
+
+    return (
+      <div
+        className="mt-3 rounded-xl border bg-background/50 hover:bg-muted/30 transition-colors overflow-hidden cursor-pointer"
+        onClick={onOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onOpen?.();
+        }}
+      >
+        <div className="p-3">
+          <div className="flex gap-3">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarImage src={item?.author?.profilePic} alt={authorUsername || 'User'} />
+              <AvatarFallback>{getInitials(authorUsername)}</AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0">
+                {authorLink ? (
+                  <Link to={authorLink} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:underline truncate">
+                    @{authorUsername}
+                  </Link>
+                ) : (
+                  <span className="text-sm font-semibold">Anonymous</span>
+                )}
+
+                <span className="text-xs text-muted-foreground">•</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">{getTimeAgo(item?.createdAt)}</span>
+              </div>
+
+              {item?.content ? (
+                <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">{item.content}</p>
+              ) : null}
+
+              {firstImage ? (
+                <div className="mt-2 rounded-lg overflow-hidden border bg-muted">
+                  <img
+                    src={firstImage}
+                    alt="Embedded media"
+                    className="w-full max-h-56 object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ✅ Replace `const CommentItem = (...) => { ... }` with a render function:
+  const renderCommentItem = (comment, depth = 0, parentCommentId = null) => {
     if (!comment) return null;
-    
+
     const commentId = comment._id || comment.id;
     const isCommentOwner = user?._id === (comment.author?._id || comment.author?.id);
-    
-    // Determine the root parent for this comment/reply
     const rootParentId = depth === 0 ? commentId : parentCommentId;
-    
+
     const isExpanded = expandedComments[commentId];
     const replies = loadedReplies[commentId] || [];
     const previewReplies = comment.previewReplies || [];
     const hasLoadedReplies = replies.length > 0;
     const isLoadingReplies = loadingReplies[commentId];
 
-    // Calculate hidden replies count
     const totalReplies = comment.replyCount || 0;
-    const visibleRepliesCount = isExpanded 
-      ? replies.length + previewReplies.length 
-      : previewReplies.length;
+    const visibleRepliesCount = isExpanded ? replies.length + previewReplies.length : previewReplies.length;
     const hiddenRepliesCount = Math.max(0, totalReplies - visibleRepliesCount);
 
     return (
       <div className="relative">
-        {/* Thread Line */}
-        {depth > 0 && (
-          <div className="absolute left-5 top-0 w-0.5 h-full bg-border -ml-0.5" />
-        )}
-        
+        {depth > 0 && <div className="absolute left-5 top-0 w-0.5 h-full bg-border -ml-0.5" />}
+
         <div className={`flex gap-3 ${depth > 0 ? 'pl-12' : ''}`}>
-          {/* Avatar */}
           <div className="relative z-10 flex-shrink-0">
             <Avatar className="h-10 w-10 border-2 border-background">
               <AvatarImage
                 src={comment.isAnonymous ? '' : comment.author?.profilePic}
                 alt={comment.isAnonymous ? 'Anonymous' : comment.author?.username}
               />
-              <AvatarFallback>
-                {comment.isAnonymous ? 'A' : getInitials(comment.author?.username)}
-              </AvatarFallback>
+              <AvatarFallback>{comment.isAnonymous ? 'A' : getInitials(comment.author?.username)}</AvatarFallback>
             </Avatar>
           </div>
 
-          {/* Content */}
           <div className="flex-1 pb-3">
             <div className="bg-muted/30 rounded-lg p-3">
               <div className="flex items-start justify-between mb-1">
@@ -423,17 +467,13 @@ export default function ThreadDetail() {
                     <span className="font-semibold text-sm">
                       {comment.isAnonymous ? 'Anonymous' : `@${comment.author?.username}`}
                     </span>
-                    <span className="text-xs text-muted-foreground">
-                      {getTimeAgo(comment.createdAt)}
-                    </span>
+                    <span className="text-xs text-muted-foreground">{getTimeAgo(comment.createdAt)}</span>
                   </div>
-                  {!comment.isAnonymous && comment.author?.department && (
-                    <span className="text-xs text-muted-foreground">
-                      {comment.author.department}
-                    </span>
+                  {!comment.isAnonymous && comment.author?.rollNumber && (
+                    <span className="text-xs text-muted-foreground">{comment.author.rollNumber}</span>
                   )}
                 </div>
-                
+
                 {isCommentOwner && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -442,10 +482,7 @@ export default function ThreadDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem 
-                        onClick={() => handleDeleteComment(commentId)}
-                        className="text-red-600"
-                      >
+                      <DropdownMenuItem onClick={() => handleDeleteComment(commentId)} className="text-red-600">
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete
                       </DropdownMenuItem>
@@ -453,26 +490,19 @@ export default function ThreadDetail() {
                   </DropdownMenu>
                 )}
               </div>
-              
+
               <p className="text-sm leading-relaxed">{comment.content}</p>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-4 mt-2 ml-1">
-              {/* Like Button */}
               <button
                 onClick={() => handleLikeComment(commentId)}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-500 transition-colors group"
               >
-                <Heart
-                  className={`h-4 w-4 ${
-                    comment.isLiked ? 'fill-red-500 text-red-500' : ''
-                  } group-hover:scale-110 transition-transform`}
-                />
+                <Heart className={`h-4 w-4 ${comment.isLiked ? 'fill-red-500 text-red-500' : ''} group-hover:scale-110 transition-transform`} />
                 <span>{comment.likesCount || 0}</span>
               </button>
 
-              {/* Reply Button */}
               <Button
                 variant="ghost"
                 size="sm"
@@ -487,28 +517,23 @@ export default function ThreadDetail() {
               </Button>
             </div>
 
-            {/* Reply Input */}
             {replyingTo?.commentId === commentId && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2" dir="ltr">
                 <Avatar className="h-8 w-8 flex-shrink-0">
                   <AvatarImage src={user?.profilePic} alt={user?.username} />
                   <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
                 </Avatar>
+
                 <div className="flex-1 space-y-2">
                   <Textarea
-                    key={`reply-${commentId}`}
+                    // ✅ remove key to avoid any forced remount
                     placeholder={`Reply to ${comment.isAnonymous ? 'Anonymous' : `@${comment.author?.username}`}...`}
                     value={replyText}
-                    onChange={(e) => {
-                      e.preventDefault();
-                      const newValue = e.target.value;
-                      setReplyText(newValue);
-                    }}
-                    className="min-h-[60px] resize-none text-sm"
+                    onChange={(e) => setReplyText(stripBidiControls(e.target.value))}
+                    dir="ltr"
+                    className="min-h-[60px] resize-none text-sm !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                     maxLength={500}
                     autoFocus
-                    dir="ltr"
-                    style={{ direction: 'ltr', unicodeBidi: 'bidi-override' }}
                   />
                   <div className="flex justify-end gap-2">
                     <Button
@@ -534,35 +559,22 @@ export default function ThreadDetail() {
               </div>
             )}
 
-            {/* Preview Replies (Always visible if exist) */}
-            {!isExpanded && previewReplies && previewReplies.length > 0 && (
+            {!isExpanded && previewReplies?.length > 0 && (
               <div className="mt-2 space-y-2">
-                {previewReplies.filter(r => r).map((reply) => (
-                  <CommentItem
-                    key={reply._id || reply.id}
-                    comment={reply}
-                    depth={depth + 1}
-                    parentCommentId={rootParentId}
-                  />
+                {previewReplies.filter(Boolean).map((reply) => (
+                  <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
                 ))}
               </div>
             )}
 
-            {/* Loaded Replies (When expanded) */}
             {isExpanded && hasLoadedReplies && (
               <div className="mt-2 space-y-2">
-                {replies.filter(r => r).map((reply) => (
-                  <CommentItem
-                    key={reply._id || reply.id}
-                    comment={reply}
-                    depth={depth + 1}
-                    parentCommentId={rootParentId}
-                  />
+                {replies.filter(Boolean).map((reply) => (
+                  <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
                 ))}
               </div>
             )}
 
-            {/* Show/Hide Replies Buttons */}
             <div className="mt-2 ml-1">
               {totalReplies > 0 && (
                 <>
@@ -572,11 +584,8 @@ export default function ThreadDetail() {
                       size="sm"
                       className="h-auto p-0 text-xs text-primary hover:underline"
                       onClick={() => {
-                        if (!hasLoadedReplies) {
-                          loadReplies(commentId);
-                        } else {
-                          toggleReplies(commentId);
-                        }
+                        if (!hasLoadedReplies) loadReplies(commentId);
+                        else toggleReplies(commentId);
                       }}
                       disabled={isLoadingReplies}
                     >
@@ -635,19 +644,15 @@ export default function ThreadDetail() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-
-        {/* Responsive shell: mobile feed-only, lg+ left sidebar, xl+ right sidebar */}
         <div className="container mx-auto flex flex-col lg:flex-row">
           <aside className="hidden lg:block w-64 shrink-0">
             <Sidebar />
           </aside>
-
           <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           </main>
-
           <aside className="hidden xl:block w-80 shrink-0">
             <SuggestedUsers />
           </aside>
@@ -660,16 +665,13 @@ export default function ThreadDetail() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-
         <div className="container mx-auto flex flex-col lg:flex-row">
           <aside className="hidden lg:block w-64 shrink-0">
             <Sidebar />
           </aside>
-
           <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
             <div className="p-8 text-center text-muted-foreground">Thread not found</div>
           </main>
-
           <aside className="hidden xl:block w-80 shrink-0">
             <SuggestedUsers />
           </aside>
@@ -678,19 +680,19 @@ export default function ThreadDetail() {
     );
   }
 
+  const embedded =
+    threadType === 'quote' ? thread.quotedThread : threadType === 'repost' ? thread.repostedThread : null;
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
       <div className="container mx-auto flex flex-col lg:flex-row">
-        {/* Left Sidebar (desktop only) */}
         <aside className="hidden lg:block w-64 shrink-0">
           <Sidebar />
         </aside>
 
-        {/* Main */}
         <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
-          {/* Header */}
           <div className="sticky top-16 z-10 bg-background/95 backdrop-blur border-b p-4 flex items-center space-x-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-5 w-5" />
@@ -698,29 +700,75 @@ export default function ThreadDetail() {
             <h1 className="font-semibold text-lg">Thread</h1>
           </div>
 
-          {/* Original Thread */}
           <div className="border-b p-4">
+            {/* Repost banner (detail) */}
+            {threadType === 'repost' && thread?.repostedBy?.username ? (
+              <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Repeat2 className="h-4 w-4" />
+                <span>Reposted by</span>
+                <Link to={`/@${thread.repostedBy.username}`} className="hover:underline">
+                  @{thread.repostedBy.username}
+                </Link>
+              </div>
+            ) : null}
+
             <div className="flex space-x-3">
               <Avatar className="h-12 w-12">
-                <AvatarImage src={thread.author?.profilePic} alt={thread.author?.username} />
-                <AvatarFallback>
-                  {thread.isAnonymous ? 'A' : getInitials(thread.author?.username)}
-                </AvatarFallback>
+                <AvatarImage src={thread.isAnonymous ? '' : thread.author?.profilePic} alt={thread.author?.username} />
+                <AvatarFallback>{thread.isAnonymous ? 'A' : getInitials(thread.author?.username)}</AvatarFallback>
               </Avatar>
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2 min-w-0">
-                  <span className="font-semibold truncate">
-                    {thread.isAnonymous ? 'Anonymous' : `@${thread.author?.username}`}
-                  </span>
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">
-                    {getTimeAgo(thread.createdAt)}
-                  </span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-semibold truncate">
+                        {thread.isAnonymous ? 'Anonymous' : `@${thread.author?.username}`}
+                      </span>
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        {getTimeAgo(thread.createdAt)}
+                      </span>
+                    </div>
+                    {!thread.isAnonymous && thread.author?.rollNumber ? (
+                      <div className="text-xs text-muted-foreground">{thread.author.rollNumber}</div>
+                    ) : null}
+                  </div>
+
+                  {isOwner ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleDeleteThread} className="text-red-600">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
                 </div>
 
-                <p className="mt-2 text-base whitespace-pre-wrap break-words">{thread.content}</p>
+                {/* Main content (hide if empty, e.g. simple repost) */}
+                {typeof thread.content === 'string' && thread.content.trim().length > 0 ? (
+                  <p className="mt-2 text-base whitespace-pre-wrap break-words">{thread.content}</p>
+                ) : null}
 
-                {thread.images && thread.images.length > 0 && (
+                {/* Embedded preview for quote/repost */}
+                {embedded ? (
+                  <EmbeddedThreadPreview
+                    item={embedded}
+                    onOpen={() => {
+                      const embeddedId = embedded?.id || embedded?._id;
+                      if (embeddedId) navigate(`/thread/${embeddedId}`);
+                    }}
+                  />
+                ) : null}
+
+                {/* Images for this thread (normal threads, or quote content images if you add later) */}
+                {Array.isArray(thread.images) && thread.images.length > 0 ? (
                   <div className="mt-3 grid gap-2 grid-cols-1 sm:grid-cols-2">
                     {thread.images.map((image, index) => (
                       <img
@@ -728,15 +776,61 @@ export default function ThreadDetail() {
                         src={image.url || image}
                         alt={`Thread image ${index + 1}`}
                         className="w-full rounded-lg object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
                       />
                     ))}
                   </div>
-                )}
+                ) : null}
 
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4 text-sm text-muted-foreground">
-                  <span>❤️ {thread.likeCount || 0} likes</span>
-                  <span>💬 {totalComments} comments</span>
+                {/* Actions */}
+                <div className="mt-4 flex items-center gap-6 text-sm text-muted-foreground">
+                  <button
+                    onClick={handleLikeThread}
+                    className={`flex items-center gap-2 hover:text-red-500 transition-colors ${
+                      thread.isLiked ? 'text-red-500' : ''
+                    }`}
+                  >
+                    <Heart className={`h-5 w-5 ${thread.isLiked ? 'fill-red-500' : ''}`} />
+                    <span>{thread.likesCount || 0}</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5" />
+                    <span>{totalComments}</span>
+                  </div>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className={`flex items-center gap-2 hover:text-green-500 transition-colors ${
+                          thread.isReposted ? 'text-green-500' : ''
+                        }`}
+                      >
+                        <Repeat2 className="h-5 w-5" />
+                        <span>{thread.repostCount || 0}</span>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={handleToggleRepost}>Repost</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setQuoteOpen(true)}>Quote</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+
+                <QuoteRepostModal
+                  open={quoteOpen}
+                  onClose={() => setQuoteOpen(false)}
+                  threadId={thread.id}
+                  onCreated={(created) => {
+                    // backend increments repostCount on target; keep UI in sync
+                    setThread((prev) => (prev ? { ...prev, repostCount: (prev.repostCount || 0) + 1 } : prev));
+
+                    const createdId = created?.id || created?._id;
+                    if (createdId) navigate(`/thread/${createdId}`);
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -753,11 +847,10 @@ export default function ThreadDetail() {
                   <Textarea
                     placeholder="Add a comment..."
                     value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    className="min-h-[80px] resize-none"
-                    maxLength={500}
+                    onChange={(e) => setCommentText(stripBidiControls(e.target.value))}
                     dir="ltr"
-                    style={{ direction: 'ltr' }}
+                    className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
+                    maxLength={500}
                   />
                 </div>
               </div>
@@ -770,12 +863,10 @@ export default function ThreadDetail() {
             </form>
           </div>
 
-          {/* Comments (use window scroll for better mobile behavior) */}
+          {/* Comments */}
           <div className="p-4">
             {comments.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                No comments yet. Be the first to comment!
-              </div>
+              <div className="p-8 text-center text-muted-foreground">No comments yet. Be the first to comment!</div>
             ) : (
               <InfiniteScroll
                 dataLength={comments.length}
@@ -793,13 +884,8 @@ export default function ThreadDetail() {
                 }
               >
                 <div className="space-y-4">
-                  {comments.filter((c) => c).map((comment) => (
-                    <CommentItem
-                      key={comment._id || comment.id}
-                      comment={comment}
-                      depth={0}
-                      parentCommentId={null}
-                    />
+                  {comments.filter(Boolean).map((comment) => (
+                    <div key={comment._id || comment.id}>{renderCommentItem(comment, 0, null)}</div>
                   ))}
                 </div>
               </InfiniteScroll>
@@ -807,7 +893,6 @@ export default function ThreadDetail() {
           </div>
         </main>
 
-        {/* Right Sidebar (xl+ only) */}
         <aside className="hidden xl:block w-80 shrink-0">
           <SuggestedUsers />
         </aside>
@@ -815,3 +900,6 @@ export default function ThreadDetail() {
     </div>
   );
 }
+
+const stripBidiControls = (s) =>
+  (s || '').replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '');

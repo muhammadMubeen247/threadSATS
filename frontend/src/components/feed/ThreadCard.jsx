@@ -357,38 +357,50 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
           {/* Content */}
           <div className="flex-1 min-w-0">
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 min-w-0">
-                {authorLink ? (
-                  <Link
-                    to={authorLink}
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-semibold hover:underline truncate"
-                  >
-                    @{thread.author?.username}
-                  </Link>
-                ) : (
-                  <span className="font-semibold">Anonymous</span>
-                )}
-
-                <span className="text-sm text-muted-foreground">•</span>
-                <span className="text-sm text-muted-foreground whitespace-nowrap">
-                  {getTimeAgo(thread.createdAt)}
-                </span>
-
-                {!isOwner && !isAnonymous && (
-                  <>
-                    <span className="text-sm text-muted-foreground">•</span>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-sm"
-                      onClick={handleFollow}
+            <div className="flex items-start justify-between">
+              {/* Left (name/time + roll number below) */}
+              <div className="min-w-0 flex flex-col">
+                {/* Row 1: name + time + follow */}
+                <div className="flex items-center gap-2 min-w-0">
+                  {authorLink ? (
+                    <Link
+                      to={authorLink}
+                      onClick={(e) => e.stopPropagation()}
+                      className="font-semibold hover:underline truncate"
                     >
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </Button>
-                  </>
-                )}
+                      @{thread.author?.username}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold">Anonymous</span>
+                  )}
+
+                  <span className="text-sm text-muted-foreground">•</span>
+
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">
+                    {getTimeAgo(thread.createdAt)}
+                  </span>
+
+                  {!isOwner && !isAnonymous && (
+                    <>
+                      <span className="text-sm text-muted-foreground">•</span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-sm"
+                        onClick={handleFollow}
+                      >
+                        {isFollowing ? 'Following' : 'Follow'}
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+                {/* Row 2: roll number */}
+                {!isAnonymous && thread.author?.rollNumber ? (
+                  <div className="text-xs text-muted-foreground truncate">
+                    {thread.author.rollNumber}
+                  </div>
+                ) : null}
               </div>
 
               {/* Three-dot menu */}
