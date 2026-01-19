@@ -40,51 +40,53 @@ const formatNormalThread = (thread, userId) => {
   return t;
 };
 
-const formatFeedItem = (doc, userId, repostedOriginalIdSet) => {
-  // ✅ Quote repost: show quote content + embedded original
+const resolveDisplayThread = (t) => {
+  // If you repost a repost, display the deepest available non-repost.
+  // This works as deep as your populate chain provides.
+  let cur = t;
+  while (cur && cur.type === 'repost' && cur.repostOf && typeof cur.repostOf === 'object') {
+    cur = cur.repostOf;
+  }
+  return cur || t;
+};
+
+const formatFeedItem = (doc, userId, repostedTargetIdSet) => {
+  const docId = doc?._id?.toString();
+
+  // ✅ Quote repost: show quote content + embedded quoted thread (for display only)
   if (doc.type === 'quote' && doc.repostOf) {
-    const original = doc.repostOf;
-    const originalId = original?._id?.toString();
+    const quotedDisplay = resolveDisplayThread(doc.repostOf);
 
     const quote = formatNormalThread(doc, userId);
 
     return {
       ...quote,
       type: 'quote',
-      // show share count of ORIGINAL in the UI
-      repostCount: original?.repostCount || 0,
-      // embedded original
-      quotedThread: formatNormalThread(original, userId),
-      // whether current user has reposted the original
-      isReposted: userId ? repostedOriginalIdSet.has(originalId) : false,
+      quotedThread: formatNormalThread(quotedDisplay, userId),
+      // ✅ isReposted means: "have I reposted THIS item?"
+      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
     };
   }
 
-  // If it's a repost, return original content but with repost metadata
+  // ✅ Simple repost: this is its OWN item (id = repost doc id), embed target for display
   if (doc.type === 'repost' && doc.repostOf) {
-    const original = doc.repostOf;
-
-    const base = formatNormalThread(original, userId);
-    const originalId = original?._id?.toString();
+    const repost = formatNormalThread(doc, userId);
+    const repostedDisplay = resolveDisplayThread(doc.repostOf);
 
     return {
-      ...base,
+      ...repost,
       type: 'repost',
-      repost: {
-        id: doc._id,
-        createdAt: doc.createdAt,
-      },
-      repostedBy: formatAuthor(doc.author),
-      isReposted: userId ? repostedOriginalIdSet.has(originalId) : false,
+      repostedThread: formatNormalThread(repostedDisplay, userId),
+      repostedBy: formatAuthor(doc.author), // ✅ add
+      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
     };
   }
 
   // Normal thread
   const base = formatNormalThread(doc, userId);
-  const id = doc?._id?.toString();
   return {
     ...base,
-    isReposted: userId ? repostedOriginalIdSet.has(id) : false,
+    isReposted: userId ? repostedTargetIdSet.has(docId) : false,
   };
 };
 
@@ -190,41 +192,50 @@ exports.getAllThreads = async (req, res) => {
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
-        populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
       })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // If logged in, compute isReposted for originals in this page
-    const originals = threads
-      .map((t) => (t.type === 'repost' ? t.repostOf?._id : t._id))
-      .filter(Boolean);
+    // ✅ include quote items too
+    const targets = threads.map((t) => t._id).filter(Boolean);
 
-    const repostedOriginalIdSet = new Set();
-    if (req.user && originals.length) {
+    const repostedTargetIdSet = new Set();
+    if (targets.length) { // ✅ was: if (originals.length)
       const myReposts = await Thread.find({
         type: 'repost',
         author: req.user.id,
-        repostOf: { $in: originals },
+        repostOf: { $in: targets },
         isDeleted: false,
       })
         .select('repostOf')
         .lean();
 
-      for (const r of myReposts) repostedOriginalIdSet.add(r.repostOf.toString());
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
-    // If original author is blocked, drop repost item (extra safety)
+    // ✅ drop repost/quote if original missing/deleted; also block-check original author for both
     const formatted = threads
       .filter((t) => {
-        if (t.type !== 'repost') return true;
+        if (t.type === 'thread') return true;
+
+        // repost/quote must have original
         const originalAuthorId = t.repostOf?.author?._id?.toString();
         if (!originalAuthorId) return false;
+
+        // if original author is blocked, drop it
         return !excludedUserIds.some((x) => x.toString() === originalAuthorId);
       })
-      .map((t) => formatFeedItem(t, req.user?.id, repostedOriginalIdSet));
+      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,
@@ -278,7 +289,14 @@ exports.getUserThreads = async (req, res) => {
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
-        populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
       })
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -286,28 +304,26 @@ exports.getUserThreads = async (req, res) => {
       .lean();
 
     // originals in this page (for isReposted)
-    const originals = docs
-      .map((t) => (t.type === 'repost' || t.type === 'quote' ? t.repostOf?._id : t._id))
-      .filter(Boolean);
+    const targets = docs.map((t) => t._id).filter(Boolean);
 
-    const repostedOriginalIdSet = new Set();
-    if (req.user && originals.length) {
+    const repostedTargetIdSet = new Set();
+    if (req.user && targets.length) {
       const myReposts = await Thread.find({
         type: 'repost',
         author: req.user.id,
-        repostOf: { $in: originals },
+        repostOf: { $in: targets },
         isDeleted: false,
       })
         .select('repostOf')
         .lean();
 
-      for (const r of myReposts) repostedOriginalIdSet.add(r.repostOf.toString());
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
     // drop repost/quote if original missing/deleted
     const formattedThreads = docs
       .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
-      .map((t) => formatFeedItem(t, req.user?.id, repostedOriginalIdSet));
+      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,
@@ -556,14 +572,6 @@ exports.toggleRepost = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Thread not found' });
     }
 
-    // ✅ Prevent reposting a repost (or any non-thread type)
-    if (original.type && original.type !== 'thread') {
-      return res.status(400).json({
-        success: false,
-        message: 'You can only repost an original thread',
-      });
-    }
-
     const userId = req.user.id;
 
     // find active repost (if any)
@@ -639,48 +647,46 @@ exports.createQuoteRepost = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Quote content is required' });
     }
 
-    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id type repostCount');
-    if (!original) {
+    // ✅ allow quoting ANY existing thread (thread / repost / quote)
+    const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id');
+    if (!target) {
       return res.status(404).json({ success: false, message: 'Thread not found' });
-    }
-
-    // Only allow quoting ORIGINAL threads
-    if (original.type && original.type !== 'thread') {
-      return res.status(400).json({ success: false, message: 'You can only quote an original thread' });
     }
 
     const quote = await Thread.create({
       type: 'quote',
-      repostOf: threadId,
+      repostOf: threadId,          // ✅ quote THIS item
       author: req.user.id,
       content: text,
       isAnonymous: false,
       images: [],
     });
 
+    // ✅ increment repostCount on the quoted target (thread2 in your example)
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
 
-    // populate for response
+    // populate for response (include one more level for repost-of-repost display)
     await quote.populate('author', 'username profilePic rollNumber department batch');
     await quote.populate({
       path: 'repostOf',
-      populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+      match: { isDeleted: false },
+      populate: [
+        { path: 'author', select: 'username profilePic rollNumber department batch' },
+        {
+          path: 'repostOf',
+          match: { isDeleted: false },
+          populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+        },
+      ],
     });
 
-    // for isReposted flag on original (for current user)
-    const repostedOriginalIdSet = new Set();
-    const myRepost = await Thread.findOne({
-      type: 'repost',
-      author: req.user.id,
-      repostOf: threadId,
-      isDeleted: false,
-    }).select('_id');
-    if (myRepost) repostedOriginalIdSet.add(threadId.toString());
+    // ✅ isReposted here means "have I reposted this quote thread?" -> false for a new quote
+    const repostedTargetIdSet = new Set();
 
     return res.status(201).json({
       success: true,
       message: 'Quote repost created',
-      thread: formatFeedItem(quote, req.user.id, repostedOriginalIdSet),
+      thread: formatFeedItem(quote, req.user.id, repostedTargetIdSet),
     });
   } catch (error) {
     console.error('Create quote repost error:', error);
@@ -727,34 +733,40 @@ exports.getFollowingFeed = async (req, res) => {
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
-        populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
       })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const originals = threads
-      .map((t) => (t.type === 'repost' ? t.repostOf?._id : t._id))
-      .filter(Boolean);
+    // ✅ include quote items too
+    const targets = threads.map((t) => t._id).filter(Boolean);
 
-    const repostedOriginalIdSet = new Set();
-    if (originals.length) {
+    const repostedTargetIdSet = new Set();
+    if (targets.length) { // ✅ was: if (originals.length)
       const myReposts = await Thread.find({
         type: 'repost',
         author: req.user.id,
-        repostOf: { $in: originals },
+        repostOf: { $in: targets },
         isDeleted: false,
       })
         .select('repostOf')
         .lean();
 
-      for (const r of myReposts) repostedOriginalIdSet.add(r.repostOf.toString());
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
     const formatted = threads
-      .filter((t) => t.type !== 'repost' || !!t.repostOf) // drop reposts whose original is missing/deleted
-      .map((t) => formatFeedItem(t, req.user.id, repostedOriginalIdSet));
+      .filter((t) => t.type === 'thread' || !!t.repostOf)
+      .map((t) => formatFeedItem(t, req.user.id, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,

@@ -20,12 +20,17 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const { user } = useAuthStore();
 
   // Original thread id (used for like/repost/detail nav)
-  const threadId = thread?._id || thread?.id;
+  const threadId = thread?.id || thread?._id;
+
+  // ✅ repost target is ALWAYS this card's id
+  const repostTargetId = threadId;
+
+  // ✅ do not force counts to 0; use the value returned by API
+  // remove: const isCountedThread = thread?.type === 'thread';
 
   // Unique render key (used to update correct card in lists)
-  const updateKey = useMemo(() => {
-    return thread?.type === 'repost' ? thread?.repost?.id : threadId;
-  }, [thread?.type, thread?.repost?.id, threadId]);
+  // ✅ repost items now have their own id; don't use thread.repost.id (you no longer return that)
+  const updateKey = useMemo(() => threadId, [threadId]);
 
   const [isLiked, setIsLiked] = useState(thread.isLiked || false);
   const [likesCount, setLikesCount] = useState(thread.likesCount || 0);
@@ -138,6 +143,83 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     );
   };
 
+  const renderRepostedPreview = () => {
+    if (thread?.type !== 'repost' || !thread?.repostedThread) return null;
+
+    // Reuse your quoted preview layout by mapping to "qt"
+    const qt = thread.repostedThread;
+    const originalId = qt?.id || qt?._id;
+    const originalAuthorUsername = qt?.author?.username;
+    const originalAuthorLink = originalAuthorUsername ? `/@${originalAuthorUsername}` : null;
+    const originalImages = Array.isArray(qt?.images) ? qt.images : [];
+    const firstImageUrl = originalImages?.[0]?.url || originalImages?.[0] || '';
+
+    return (
+      <div
+        className="mt-3 rounded-xl border bg-background/50 hover:bg-muted/30 transition-colors overflow-hidden"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (originalId) navigate(`/thread/${originalId}`);
+        }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            if (originalId) navigate(`/thread/${originalId}`);
+          }
+        }}
+      >
+        <div className="p-3">
+          <div className="flex gap-3">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorUsername || 'User'} />
+              <AvatarFallback>{getInitials(originalAuthorUsername)}</AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0">
+                {originalAuthorLink ? (
+                  <Link
+                    to={originalAuthorLink}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-sm font-semibold hover:underline truncate"
+                  >
+                    @{originalAuthorUsername}
+                  </Link>
+                ) : (
+                  <span className="text-sm font-semibold">Anonymous</span>
+                )}
+
+                <span className="text-xs text-muted-foreground">•</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {getTimeAgo(qt?.createdAt)}
+                </span>
+              </div>
+
+              <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                {qt?.content}
+              </p>
+
+              {firstImageUrl ? (
+                <div className="mt-2 rounded-lg overflow-hidden border bg-muted">
+                  <img
+                    src={firstImageUrl}
+                    alt="Reposted thread media"
+                    className="w-full max-h-56 object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const handleLike = async (e) => {
     e.stopPropagation();
 
@@ -160,17 +242,9 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     }
   };
 
-  // For quote cards, repost should target the original thread (quotedThread)
-  const repostTargetId =
-    thread?.type === 'quote' ? (thread?.quotedThread?.id || thread?.quotedThread?._id) : threadId;
-
   const handleRepost = async (e) => {
     e.stopPropagation();
-
-    if (!repostTargetId) {
-      console.error('Repost target ID is missing:', thread);
-      return;
-    }
+    if (!repostTargetId) return;
 
     try {
       const res = await api.put(`/threads/${repostTargetId}/repost`);
@@ -180,11 +254,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
       setIsReposted(nextIsReposted);
       setRepostCount(nextCount);
-
-      onUpdate?.(updateKey, {
-        isReposted: nextIsReposted,
-        repostCount: nextCount,
-      });
+      onUpdate?.(updateKey, { isReposted: nextIsReposted, repostCount: nextCount });
     } catch (error) {
       console.error('Failed to repost:', error);
     }
@@ -339,11 +409,16 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
               )}
             </div>
 
-            {/* Thread Content */}
-            <p className="mt-2 text-sm whitespace-pre-wrap break-words">{thread.content}</p>
+            {/* Thread Content (don't render if empty, e.g. simple reposts) */}
+            {typeof thread.content === 'string' && thread.content.trim().length > 0 ? (
+              <p className="mt-2 text-sm whitespace-pre-wrap break-words">{thread.content}</p>
+            ) : null}
 
-            {/* ✅ Embedded original preview for quote repost */}
+            {/* ✅ Embedded preview for quote repost */}
             {renderQuotedPreview()}
+
+            {/* ✅ Embedded preview for simple repost */}
+            {renderRepostedPreview()}
 
             {/* Images (for normal thread / quote content images if you add later) */}
             {thread.images && Array.isArray(thread.images) && thread.images.length > 0 && (
@@ -414,6 +489,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                     }`}
                   >
                     <Repeat2 className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                    {/* ✅ show 0 on repost/quote cards */}
                     <span className="text-sm">{repostCount}</span>
                   </button>
                 </DropdownMenuTrigger>
@@ -446,13 +522,11 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
       <QuoteRepostModal
         open={isQuoteOpen}
         onClose={() => setIsQuoteOpen(false)}
-        threadId={repostTargetId || threadId}
+        threadId={threadId}   // ✅ quote THIS card, not the embedded original
         onCreated={(created) => {
-          // Quote increases original repostCount; keep count in sync
           setRepostCount((c) => c + 1);
           onUpdate?.(updateKey, { repostCount: repostCount + 1 });
 
-          // Optional: go to the newly created quote thread detail
           const createdId = created?.id || created?._id;
           if (createdId) navigate(`/thread/${createdId}`);
         }}
