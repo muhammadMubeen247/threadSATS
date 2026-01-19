@@ -3,6 +3,93 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
 
+const formatAuthor = (u) => ({
+  id: u?._id,
+  username: u?.username,
+  profilePic: u?.profilePic,
+  rollNumber: u?.rollNumber,
+  department: u?.department,
+  batch: u?.batch,
+});
+
+const formatNormalThread = (thread, userId) => {
+  const t = {
+    id: thread._id,
+    type: thread.type || 'thread',
+    content: thread.content,
+    isAnonymous: thread.isAnonymous,
+    images: thread.images,
+    likes: thread.likes,
+    likesCount: thread.likes?.length || 0,
+    commentCount: thread.commentCount || 0,
+    repostCount: thread.repostCount || 0,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  };
+
+  if (!thread.isAnonymous && thread.author) t.author = formatAuthor(thread.author);
+  else {
+    t.author = { username: 'Anonymous', profilePic: '', department: 'COMSATS Student' };
+  }
+
+  if (userId) {
+    t.isLiked = (thread.likes || []).some((id) => id.toString() === userId.toString());
+    t.isOwner = thread.author?._id?.toString() === userId.toString();
+  }
+
+  return t;
+};
+
+const resolveDisplayThread = (t) => {
+  // If you repost a repost, display the deepest available non-repost.
+  // This works as deep as your populate chain provides.
+  let cur = t;
+  while (cur && cur.type === 'repost' && cur.repostOf && typeof cur.repostOf === 'object') {
+    cur = cur.repostOf;
+  }
+  return cur || t;
+};
+
+const formatFeedItem = (doc, userId, repostedTargetIdSet) => {
+  const docId = doc?._id?.toString();
+
+  // ✅ Quote repost: show quote content + embedded quoted thread (for display only)
+  if (doc.type === 'quote' && doc.repostOf) {
+    const quotedDisplay = resolveDisplayThread(doc.repostOf);
+
+    const quote = formatNormalThread(doc, userId);
+
+    return {
+      ...quote,
+      type: 'quote',
+      quotedThread: formatNormalThread(quotedDisplay, userId),
+      // ✅ isReposted means: "have I reposted THIS item?"
+      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+    };
+  }
+
+  // ✅ Simple repost: this is its OWN item (id = repost doc id), embed target for display
+  if (doc.type === 'repost' && doc.repostOf) {
+    const repost = formatNormalThread(doc, userId);
+    const repostedDisplay = resolveDisplayThread(doc.repostOf);
+
+    return {
+      ...repost,
+      type: 'repost',
+      repostedThread: formatNormalThread(repostedDisplay, userId),
+      repostedBy: formatAuthor(doc.author), // ✅ add
+      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+    };
+  }
+
+  // Normal thread
+  const base = formatNormalThread(doc, userId);
+  return {
+    ...base,
+    isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+  };
+};
+
 // @desc    Create a new thread
 // @route   POST /api/threads
 // @access  Private
@@ -78,11 +165,9 @@ exports.getAllThreads = async (req, res) => {
 
     let excludedUserIds = [];
 
-    // If user is logged in, exclude blocked users
     if (req.user) {
       const currentUser = await User.findById(req.user.id).select('blockedUsers');
-      
-      // Get users who blocked current user
+
       const usersWhoBlockedMe = await User.find({
         blockedUsers: req.user.id,
       }).select('_id');
@@ -93,9 +178,9 @@ exports.getAllThreads = async (req, res) => {
       ];
     }
 
-    // Build query
     const query = { isDeleted: false };
-    
+
+    // Exclude repost *authors* that are blocked
     if (excludedUserIds.length > 0) {
       query.author = { $nin: excludedUserIds };
     }
@@ -104,62 +189,65 @@ exports.getAllThreads = async (req, res) => {
 
     const threads = await Thread.find(query)
       .populate('author', 'username profilePic rollNumber department batch')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const formattedThreads = threads.map((thread) => {
-      const formattedThread = {
-        id: thread._id,
-        content: thread.content,
-        isAnonymous: thread.isAnonymous,
-        images: thread.images,
-        likes: thread.likes,
-        likesCount: thread.likes.length,
-        commentCount: thread.commentCount,
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-      };
+    // ✅ include quote items too
+    const targets = threads.map((t) => t._id).filter(Boolean);
 
-      if (!thread.isAnonymous && thread.author) {
-        formattedThread.author = {
-          id: thread.author._id,
-          username: thread.author.username,
-          profilePic: thread.author.profilePic,
-          rollNumber: thread.author.rollNumber,
-          department: thread.author.department,
-          batch: thread.author.batch,
-        };
-      } else {
-        formattedThread.author = {
-          username: 'Anonymous',
-          profilePic: '',
-          department: 'COMSATS Student',
-        };
-      }
+    const repostedTargetIdSet = new Set();
+    if (targets.length) { // ✅ was: if (originals.length)
+      const myReposts = await Thread.find({
+        type: 'repost',
+        author: req.user.id,
+        repostOf: { $in: targets },
+        isDeleted: false,
+      })
+        .select('repostOf')
+        .lean();
 
-      if (req.user) {
-        formattedThread.isLiked = thread.likes.some(
-          (likeId) => likeId.toString() === req.user.id
-        );
-        formattedThread.isOwner = thread.author._id.toString() === req.user.id;
-      }
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+    }
 
-      return formattedThread;
-    });
+    // ✅ drop repost/quote if original missing/deleted; also block-check original author for both
+    const formatted = threads
+      .filter((t) => {
+        if (t.type === 'thread') return true;
 
-    res.status(200).json({
+        // repost/quote must have original
+        const originalAuthorId = t.repostOf?.author?._id?.toString();
+        if (!originalAuthorId) return false;
+
+        // if original author is blocked, drop it
+        return !excludedUserIds.some((x) => x.toString() === originalAuthorId);
+      })
+      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
+
+    return res.status(200).json({
       success: true,
-      count: formattedThreads.length,
+      count: formatted.length,
       total,
       page,
       pages: Math.ceil(total / limit),
-      threads: formattedThreads,
+      threads: formatted,
     });
   } catch (error) {
     console.error('Get threads error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while fetching threads',
       error: error.message,
@@ -177,65 +265,67 @@ exports.getUserThreads = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Validate userId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
     }
 
-    // Check if user exists
     const user = await User.findById(userId).select('username profilePic rollNumber department batch');
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Get total count (ONLY PUBLIC threads)
-    const total = await Thread.countDocuments({
+    // ✅ include user's public threads + reposts + quote reposts
+    const query = {
       author: userId,
       isAnonymous: false,
       isDeleted: false,
-    });
+      type: { $in: ['thread', 'repost', 'quote'] },
+    };
 
-    // Fetch ONLY public threads (isAnonymous: false)
-    const threads = await Thread.find({
-      author: userId,
-      isAnonymous: false,
-      isDeleted: false,
-    })
+    const total = await Thread.countDocuments(query);
+
+    const docs = await Thread.find(query)
+      .populate('author', 'username profilePic rollNumber department batch')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Format threads
-    const formattedThreads = threads.map((thread) => ({
-      id: thread._id,
-      content: thread.content,
-      isAnonymous: false,
-      images: thread.images,
-      likes: thread.likes,
-      likesCount: thread.likes.length,
-      commentCount: thread.commentCount,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-      author: {
-        id: user._id,
-        username: user.username,
-        profilePic: user.profilePic,
-        rollNumber: user.rollNumber,
-        department: user.department,
-        batch: user.batch,
-      },
-      isLiked: req.user ? thread.likes.some((likeId) => likeId.toString() === req.user.id) : false,
-      isOwner: req.user ? user._id.toString() === req.user.id : false,
-    }));
+    // originals in this page (for isReposted)
+    const targets = docs.map((t) => t._id).filter(Boolean);
 
-    res.status(200).json({
+    const repostedTargetIdSet = new Set();
+    if (req.user && targets.length) {
+      const myReposts = await Thread.find({
+        type: 'repost',
+        author: req.user.id,
+        repostOf: { $in: targets },
+        isDeleted: false,
+      })
+        .select('repostOf')
+        .lean();
+
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+    }
+
+    // drop repost/quote if original missing/deleted
+    const formattedThreads = docs
+      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
+      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
+
+    return res.status(200).json({
       success: true,
       count: formattedThreads.length,
       total,
@@ -253,7 +343,7 @@ exports.getUserThreads = async (req, res) => {
     });
   } catch (error) {
     console.error('Get user threads error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while fetching user threads',
       error: error.message,
@@ -269,68 +359,51 @@ exports.getThreadById = async (req, res) => {
     const { threadId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid thread ID',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const thread = await Thread.findOne({
-      _id: threadId,
-      isDeleted: false,
-    }).populate('author', 'username profilePic rollNumber department batch');
+    const doc = await Thread.findOne({ _id: threadId, isDeleted: false })
+      .populate('author', 'username profilePic rollNumber department batch')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
+      })
+      .lean();
 
-    if (!thread) {
-      return res.status(404).json({
-        success: false,
-        message: 'Thread not found',
-      });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Thread not found' });
     }
 
-    // Format response
-    const responseThread = {
-      id: thread._id,
-      content: thread.content,
-      isAnonymous: thread.isAnonymous,
-      images: thread.images,
-      likes: thread.likes,
-      likesCount: thread.likesCount,
-      commentCount: thread.commentCount,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-    };
-
-    if (!thread.isAnonymous && thread.author) {
-      responseThread.author = {
-        id: thread.author._id,
-        username: thread.author.username,
-        profilePic: thread.author.profilePic,
-        rollNumber: thread.author.rollNumber,
-        department: thread.author.department,
-        batch: thread.author.batch,
-      };
-    } else {
-      responseThread.author = {
-        username: 'Anonymous',
-        profilePic: '',
-        department: 'COMSATS Student',
-      };
-    }
-
+    // isReposted = "have I reposted THIS item?"
+    const repostedTargetIdSet = new Set();
     if (req.user) {
-      responseThread.isLiked = thread.likes.some(
-        (likeId) => likeId.toString() === req.user.id
-      );
-      responseThread.isOwner = thread.author._id.toString() === req.user.id;
+      const myRepost = await Thread.findOne({
+        type: 'repost',
+        author: req.user.id,
+        repostOf: threadId,
+        isDeleted: false,
+      })
+        .select('_id')
+        .lean();
+
+      if (myRepost) repostedTargetIdSet.add(threadId.toString());
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      thread: responseThread,
+      thread: formatFeedItem(doc, req.user?.id, repostedTargetIdSet),
     });
   } catch (error) {
     console.error('Get thread error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while fetching thread',
       error: error.message,
@@ -464,6 +537,150 @@ exports.toggleLike = async (req, res) => {
   }
 };
 
+// @desc    Repost / Undo repost
+// @route   PUT /api/threads/:threadId/repost
+// @access  Private
+exports.toggleRepost = async (req, res) => {
+  try {
+    const { threadId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(threadId)) {
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
+    }
+
+    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select(
+      '_id repostCount type'
+    );
+    if (!original) {
+      return res.status(404).json({ success: false, message: 'Thread not found' });
+    }
+
+    const userId = req.user.id;
+
+    // find active repost (if any)
+    const existing = await Thread.findOne({
+      type: 'repost',
+      repostOf: threadId,
+      author: userId,
+      isDeleted: false,
+    }).select('_id');
+
+    if (existing) {
+      // Undo repost
+      await Thread.findByIdAndUpdate(existing._id, { isDeleted: true });
+
+      await Thread.findByIdAndUpdate(threadId, {
+        $inc: { repostCount: -1 },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Repost removed',
+        isReposted: false,
+      });
+    }
+
+    // Create repost
+    const repost = await Thread.create({
+      type: 'repost',
+      repostOf: threadId,
+      author: userId,
+      content: '', // repost itself has no content for now
+      isAnonymous: false,
+      images: [],
+    });
+
+    await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Reposted',
+      isReposted: true,
+      repostId: repost._id,
+    });
+  } catch (error) {
+    // handle race: unique partial index violation
+    if (error?.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Already reposted' });
+    }
+
+    console.error('Toggle repost error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while toggling repost',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Create quote repost
+// @route   POST /api/threads/:threadId/quote
+// @access  Private
+exports.createQuoteRepost = async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const { content } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(threadId)) {
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
+    }
+
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text) {
+      return res.status(400).json({ success: false, message: 'Quote content is required' });
+    }
+
+    // ✅ allow quoting ANY existing thread (thread / repost / quote)
+    const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id');
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Thread not found' });
+    }
+
+    const quote = await Thread.create({
+      type: 'quote',
+      repostOf: threadId,          // ✅ quote THIS item
+      author: req.user.id,
+      content: text,
+      isAnonymous: false,
+      images: [],
+    });
+
+    // ✅ increment repostCount on the quoted target (thread2 in your example)
+    await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
+
+    // populate for response (include one more level for repost-of-repost display)
+    await quote.populate('author', 'username profilePic rollNumber department batch');
+    await quote.populate({
+      path: 'repostOf',
+      match: { isDeleted: false },
+      populate: [
+        { path: 'author', select: 'username profilePic rollNumber department batch' },
+        {
+          path: 'repostOf',
+          match: { isDeleted: false },
+          populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+        },
+      ],
+    });
+
+    // ✅ isReposted here means "have I reposted this quote thread?" -> false for a new quote
+    const repostedTargetIdSet = new Set();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Quote repost created',
+      thread: formatFeedItem(quote, req.user.id, repostedTargetIdSet),
+    });
+  } catch (error) {
+    console.error('Create quote repost error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while creating quote repost',
+      error: error.message,
+    });
+  }
+};
+
 // @desc    Get personalized feed (from followed users)
 // @route   GET /api/threads/feed/following
 // @access  Private
@@ -473,7 +690,6 @@ exports.getFollowingFeed = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get current user's following list
     const user = await User.findById(req.user.id).select('following');
 
     if (!user.following || user.following.length === 0) {
@@ -488,73 +704,64 @@ exports.getFollowingFeed = async (req, res) => {
       });
     }
 
-    // Get total count
-    const total = await Thread.countDocuments({
+    const baseQuery = {
       author: { $in: user.following },
       isDeleted: false,
-    });
+    };
 
-    // Fetch threads from followed users
-    const threads = await Thread.find({
-      author: { $in: user.following },
-      isDeleted: false,
-    })
+    const total = await Thread.countDocuments(baseQuery);
+
+    const threads = await Thread.find(baseQuery)
       .populate('author', 'username profilePic rollNumber department batch')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          },
+        ],
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Format threads
-    const formattedThreads = threads.map((thread) => {
-      const formattedThread = {
-        id: thread._id,
-        content: thread.content,
-        isAnonymous: thread.isAnonymous,
-        images: thread.images,
-        likes: thread.likes,
-        likesCount: thread.likes.length,
-        commentCount: thread.commentCount,
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-      };
+    // ✅ include quote items too
+    const targets = threads.map((t) => t._id).filter(Boolean);
 
-      if (!thread.isAnonymous && thread.author) {
-        formattedThread.author = {
-          id: thread.author._id,
-          username: thread.author.username,
-          profilePic: thread.author.profilePic,
-          rollNumber: thread.author.rollNumber,
-          department: thread.author.department,
-          batch: thread.author.batch,
-        };
-      } else {
-        formattedThread.author = {
-          username: 'Anonymous',
-          profilePic: '',
-          department: 'COMSATS Student',
-        };
-      }
+    const repostedTargetIdSet = new Set();
+    if (targets.length) { // ✅ was: if (originals.length)
+      const myReposts = await Thread.find({
+        type: 'repost',
+        author: req.user.id,
+        repostOf: { $in: targets },
+        isDeleted: false,
+      })
+        .select('repostOf')
+        .lean();
 
-      formattedThread.isLiked = thread.likes.some(
-        (likeId) => likeId.toString() === req.user.id
-      );
-      formattedThread.isOwner = thread.author._id.toString() === req.user.id;
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+    }
 
-      return formattedThread;
-    });
+    const formatted = threads
+      .filter((t) => t.type === 'thread' || !!t.repostOf)
+      .map((t) => formatFeedItem(t, req.user.id, repostedTargetIdSet));
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      count: formattedThreads.length,
+      count: formatted.length,
       total,
       page,
       pages: Math.ceil(total / limit),
-      threads: formattedThreads,
+      threads: formatted,
     });
   } catch (error) {
     console.error('Get following feed error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while fetching feed',
       error: error.message,

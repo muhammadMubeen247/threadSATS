@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, MapPin } from 'lucide-react';
+import { Camera, MapPin, InfoIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import api from '@/api/axios';
@@ -167,7 +167,7 @@ export default function ProfileHeader({
             )}
 
             {/* Camera button */}
-            {isOwnProfile && (
+            {/* {isOwnProfile && (
               <button
                 type="button"
                 onClick={openPicPicker}
@@ -181,7 +181,7 @@ export default function ProfileHeader({
                   <Camera className="w-4 h-4" />
                 )}
               </button>
-            )}
+            )} */}
           </div>
 
           {/* <div className="mt-4">
@@ -259,9 +259,11 @@ export default function ProfileHeader({
             <div>
               <h1 className="text-2xl font-bold">@{profile?.username}</h1>
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                <MapPin className="w-4 h-4" />
+                {/* <MapPin className="w-4 h-4" /> */}
+                {/* <InfoIcon className="w-4 h-4" /> */}
                 <span>
-                  {profile?.department} • {profile?.batch}
+                  {/* {profile?.department} • {profile?.rollNumber} */}
+                  {profile?.rollNumber}
                 </span>
               </div>
             </div>

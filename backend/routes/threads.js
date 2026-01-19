@@ -9,6 +9,8 @@ const {
   deleteThread,
   toggleLike,
   getFollowingFeed,
+  toggleRepost,
+  createQuoteRepost, // ✅ add
 } = require('../controllers/controllers.thread');
 
 const {
@@ -64,6 +66,15 @@ const commentValidation = [
   body('isAnonymous').optional().isBoolean().withMessage('isAnonymous must be a boolean'),
 ];
 
+const quoteValidation = [
+  body('content')
+    .trim()
+    .notEmpty()
+    .withMessage('Quote content is required')
+    .isLength({ min: 1, max: 500 })
+    .withMessage('Quote must be between 1 and 500 characters'),
+];
+
 const validateRequest = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -80,6 +91,7 @@ const validateRequest = (req, res, next) => {
 
 // Public routes (with optional auth for like status)
 router.get('/', optionalAuth, getAllThreads);
+router.get('/feed/following', protect, getFollowingFeed); // ✅ move ABOVE "/:threadId"
 router.get('/user/:userId', userIdValidation, validate, optionalAuth, getUserThreads);
 router.get('/:threadId', threadIdValidation, validate, optionalAuth, getThreadById);
 
@@ -87,7 +99,21 @@ router.get('/:threadId', threadIdValidation, validate, optionalAuth, getThreadBy
 router.post('/', protect, createThreadValidation, validate, createThread);
 router.delete('/:threadId', protect, threadIdValidation, validate, deleteThread);
 router.put('/:threadId/like', protect, threadIdValidation, validate, toggleLike);
-router.get('/feed/following', protect, getFollowingFeed);
+
+// ✅ repost (keep only once)
+router.put('/:threadId/repost', protect, threadIdValidation, validate, toggleRepost);
+
+// Quote repost
+router.post(
+  '/:threadId/quote',
+  protect,
+  threadIdValidation,
+  quoteValidation,
+  validateRequest,
+  createQuoteRepost
+);
+
+// Comment routes
 router.post(
   '/:threadId/comments',
   protect,
