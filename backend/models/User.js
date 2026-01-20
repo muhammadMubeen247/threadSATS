@@ -76,6 +76,25 @@ const userSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    // ✅ New: persona references + active surf mode
+    publicPersonaId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Persona',
+      default: null,
+      index: true,
+    },
+    anonPersonaId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Persona',
+      default: null,
+      index: true,
+    },
+    activeMode: {
+      type: String,
+      enum: ['public', 'anon'],
+      default: 'public',
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -89,5 +108,8 @@ userSchema.index({ rollNumber: 1 });
 userSchema.index({ department: 1 });
 userSchema.index({ followers: 1 });
 userSchema.index({ following: 1 });
+userSchema.index({ publicPersonaId: 1 });
+userSchema.index({ anonPersonaId: 1 });
+userSchema.index({ activeMode: 1 });
 
 module.exports = mongoose.model('User', userSchema);

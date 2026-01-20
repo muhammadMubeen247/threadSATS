@@ -2,22 +2,25 @@ const Thread = require('../models/Thread');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
+const Persona = require('../models/Persona');
+const { getViewerContext, assertAnonConfigured, ensurePersonasForUser } = require('../utils/personaContext');
 
-const formatAuthor = (u) => ({
-  id: u?._id,
-  username: u?.username,
-  profilePic: u?.profilePic,
-  rollNumber: u?.rollNumber,
-  department: u?.department,
-  batch: u?.batch,
+const formatPersona = (p) => ({
+  id: p?._id,
+  username: p?.handle, // keep key name "username" for frontend compatibility
+  displayName: p?.displayName || '',
+  profilePic: p?.profilePic || '',
+  rollNumber: p?.rollNumber || '',
+  department: p?.department || (p?.type === 'anon' ? 'COMSATS Student' : ''),
+  batch: p?.batch || '',
+  type: p?.type || '',
 });
 
-const formatNormalThread = (thread, userId) => {
+const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
   const t = {
     id: thread._id,
     type: thread.type || 'thread',
     content: thread.content,
-    isAnonymous: thread.isAnonymous,
     images: thread.images,
     likes: thread.likes,
     likesCount: thread.likes?.length || 0,
@@ -27,22 +30,18 @@ const formatNormalThread = (thread, userId) => {
     updatedAt: thread.updatedAt,
   };
 
-  if (!thread.isAnonymous && thread.author) t.author = formatAuthor(thread.author);
-  else {
-    t.author = { username: 'Anonymous', profilePic: '', department: 'COMSATS Student' };
+  t.author = formatPersona(thread.authorPersona);
+
+  if (viewerPersonaId) {
+    t.isLiked = (thread.likes || []).some((id) => id.toString() === viewerPersonaId.toString());
   }
 
-  if (userId) {
-    t.isLiked = (thread.likes || []).some((id) => id.toString() === userId.toString());
-    t.isOwner = thread.author?._id?.toString() === userId.toString();
-  }
+  t.isOwner = ownedPersonaIds.includes(thread.authorPersona?._id?.toString());
 
   return t;
 };
 
 const resolveDisplayThread = (t) => {
-  // If you repost a repost, display the deepest available non-repost.
-  // This works as deep as your populate chain provides.
   let cur = t;
   while (cur && cur.type === 'repost' && cur.repostOf && typeof cur.repostOf === 'object') {
     cur = cur.repostOf;
@@ -50,154 +49,137 @@ const resolveDisplayThread = (t) => {
   return cur || t;
 };
 
-const formatFeedItem = (doc, userId, repostedTargetIdSet) => {
+const formatFeedItem = (doc, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet) => {
   const docId = doc?._id?.toString();
 
-  // ✅ Quote repost: show quote content + embedded quoted thread (for display only)
   if (doc.type === 'quote' && doc.repostOf) {
     const quotedDisplay = resolveDisplayThread(doc.repostOf);
-
-    const quote = formatNormalThread(doc, userId);
+    const quote = formatNormalThread(doc, viewerPersonaId, ownedPersonaIds);
 
     return {
       ...quote,
       type: 'quote',
-      quotedThread: formatNormalThread(quotedDisplay, userId),
-      // ✅ isReposted means: "have I reposted THIS item?"
-      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+      quotedThread: formatNormalThread(quotedDisplay, viewerPersonaId, ownedPersonaIds),
+      isReposted: viewerPersonaId ? repostedTargetIdSet.has(docId) : false,
     };
   }
 
-  // ✅ Simple repost: this is its OWN item (id = repost doc id), embed target for display
   if (doc.type === 'repost' && doc.repostOf) {
-    const repost = formatNormalThread(doc, userId);
+    const repost = formatNormalThread(doc, viewerPersonaId, ownedPersonaIds);
     const repostedDisplay = resolveDisplayThread(doc.repostOf);
 
     return {
       ...repost,
       type: 'repost',
-      repostedThread: formatNormalThread(repostedDisplay, userId),
-      repostedBy: formatAuthor(doc.author), // ✅ add
-      isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+      repostedThread: formatNormalThread(repostedDisplay, viewerPersonaId, ownedPersonaIds),
+      repostedBy: formatPersona(doc.authorPersona),
+      isReposted: viewerPersonaId ? repostedTargetIdSet.has(docId) : false,
     };
   }
 
-  // Normal thread
-  const base = formatNormalThread(doc, userId);
+  const base = formatNormalThread(doc, viewerPersonaId, ownedPersonaIds);
   return {
     ...base,
-    isReposted: userId ? repostedTargetIdSet.has(docId) : false,
+    isReposted: viewerPersonaId ? repostedTargetIdSet.has(docId) : false,
   };
 };
 
-// @desc    Create a new thread
-// @route   POST /api/threads
-// @access  Private
+// POST /api/threads
 exports.createThread = async (req, res) => {
   try {
-    const { content, isAnonymous, images } = req.body;
+    const { content, images } = req.body;
 
-    // Create thread
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) {
+        return res.status(409).json({
+          success: false,
+          setupRequired: true,
+          message: 'Anonymous persona setup required',
+        });
+      }
+    }
+
     const thread = await Thread.create({
       content,
-      author: req.user.id,
-      isAnonymous: isAnonymous || false,
+      authorPersona: ctx.activePersonaId,
       images: images || [],
     });
 
-    // Populate author info (needed for response)
-    await thread.populate('author', 'username profilePic rollNumber department batch');
+    await thread.populate('authorPersona', 'handle displayName profilePic coverPhoto bio rollNumber department batch type');
 
-    // Prepare response
-    const responseThread = {
-      id: thread._id,
-      content: thread.content,
-      isAnonymous: thread.isAnonymous,
-      images: thread.images,
-      likes: thread.likes,
-      likesCount: thread.likesCount,
-      commentCount: thread.commentCount,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-    };
-
-    // Only include author info if not anonymous
-    if (!thread.isAnonymous) {
-      responseThread.author = {
-        id: thread.author._id,
-        username: thread.author.username,
-        profilePic: thread.author.profilePic,
-        rollNumber: thread.author.rollNumber,
-        department: thread.author.department,
-        batch: thread.author.batch,
-      };
-    } else {
-      responseThread.author = {
-        username: 'Anonymous',
-        profilePic: '',
-        department: 'COMSATS Student',
-      };
-    }
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Thread created successfully',
-      thread: responseThread,
+      thread: formatNormalThread(thread, ctx.activePersonaId, ctx.ownedPersonaIds),
     });
   } catch (error) {
     console.error('Create thread error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while creating thread',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while creating thread', error: error.message });
   }
 };
 
-// @desc    Get all threads (homepage feed)
-// @route   GET /api/threads
-// @access  Public
+const collectPersonaIdsInThreadDoc = (doc) => {
+  const ids = new Set();
+
+  const walk = (t) => {
+    if (!t) return;
+    const authorId =
+      typeof t.authorPersona === 'object' ? t.authorPersona?._id : t.authorPersona;
+
+    if (authorId) ids.add(authorId.toString());
+
+    if (t.repostOf && typeof t.repostOf === 'object') {
+      walk(t.repostOf);
+    }
+  };
+
+  walk(doc);
+  return ids;
+};
+
+const getBlockedPersonaIdSetForViewer = async (viewerPersonaId) => {
+  if (!viewerPersonaId) return new Set();
+
+  const [me, blockedMe] = await Promise.all([
+    Persona.findById(viewerPersonaId).select('blocked').lean(),
+    Persona.find({ blocked: viewerPersonaId }).select('_id').lean(),
+  ]);
+
+  const set = new Set();
+  for (const id of me?.blocked || []) set.add(id.toString());
+  for (const p of blockedMe || []) set.add(p._id.toString());
+
+  // also exclude self? not required, but harmless
+  // set.add(viewerPersonaId.toString());
+
+  return set;
+};
+
+// GET /api/threads
 exports.getAllThreads = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    let excludedUserIds = [];
-
-    if (req.user) {
-      const currentUser = await User.findById(req.user.id).select('blockedUsers');
-
-      const usersWhoBlockedMe = await User.find({
-        blockedUsers: req.user.id,
-      }).select('_id');
-
-      excludedUserIds = [
-        ...currentUser.blockedUsers,
-        ...usersWhoBlockedMe.map((u) => u._id),
-      ];
-    }
-
     const query = { isDeleted: false };
-
-    // Exclude repost *authors* that are blocked
-    if (excludedUserIds.length > 0) {
-      query.author = { $nin: excludedUserIds };
-    }
-
     const total = await Thread.countDocuments(query);
 
     const threads = await Thread.find(query)
-      .populate('author', 'username profilePic rollNumber department batch')
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
       })
@@ -206,14 +188,34 @@ exports.getAllThreads = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // ✅ include quote items too
-    const targets = threads.map((t) => t._id).filter(Boolean);
+    let viewerPersonaId = null;
+    let ownedPersonaIds = [];
+    let blockedSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+      ownedPersonaIds = ctx?.ownedPersonaIds || [];
+      blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+    }
+
+    // ✅ filter blocked content (author + nested repost chains)
+    const visible = threads.filter((t) => {
+      if (!viewerPersonaId) return true;
+      const involved = collectPersonaIdsInThreadDoc(t);
+      for (const id of involved) {
+        if (blockedSet.has(id)) return false;
+      }
+      return true;
+    });
+
+    const targets = visible.map((t) => t._id).filter(Boolean);
 
     const repostedTargetIdSet = new Set();
-    if (targets.length) { // ✅ was: if (originals.length)
+    if (viewerPersonaId && targets.length) {
       const myReposts = await Thread.find({
         type: 'repost',
-        author: req.user.id,
+        authorPersona: viewerPersonaId,
         repostOf: { $in: targets },
         isDeleted: false,
       })
@@ -223,19 +225,9 @@ exports.getAllThreads = async (req, res) => {
       for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
-    // ✅ drop repost/quote if original missing/deleted; also block-check original author for both
-    const formatted = threads
-      .filter((t) => {
-        if (t.type === 'thread') return true;
-
-        // repost/quote must have original
-        const originalAuthorId = t.repostOf?.author?._id?.toString();
-        if (!originalAuthorId) return false;
-
-        // if original author is blocked, drop it
-        return !excludedUserIds.some((x) => x.toString() === originalAuthorId);
-      })
-      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
+    const formatted = visible
+      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
+      .map((t) => formatFeedItem(t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,
@@ -247,17 +239,11 @@ exports.getAllThreads = async (req, res) => {
     });
   } catch (error) {
     console.error('Get threads error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while fetching threads',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while fetching threads', error: error.message });
   }
 };
 
-// @desc    Get threads by specific user (for profile page - PUBLIC ONLY)
-// @route   GET /api/threads/user/:userId
-// @access  Public
+// GET /api/threads/user/:userId
 exports.getUserThreads = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -269,15 +255,31 @@ exports.getUserThreads = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid user ID' });
     }
 
-    const user = await User.findById(userId).select('username profilePic rollNumber department batch');
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const user = await ensurePersonasForUser(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    let viewerPersonaId = null;
+    let ownedPersonaIds = [];
+    let blockedSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+      ownedPersonaIds = ctx?.ownedPersonaIds || [];
+      blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+      // if viewer blocks this public persona or is blocked by it, deny the profile feed
+      if (viewerPersonaId && blockedSet.has(user.publicPersonaId.toString())) {
+        return res.status(403).json({ success: false, message: 'Cannot view this user profile' });
+      }
     }
 
-    // ✅ include user's public threads + reposts + quote reposts
+    const publicPersona = await Persona.findById(user.publicPersonaId).select(
+      'handle displayName profilePic coverPhoto bio rollNumber department batch type'
+    );
+
     const query = {
-      author: userId,
-      isAnonymous: false,
+      authorPersona: user.publicPersonaId,
       isDeleted: false,
       type: { $in: ['thread', 'repost', 'quote'] },
     };
@@ -285,16 +287,16 @@ exports.getUserThreads = async (req, res) => {
     const total = await Thread.countDocuments(query);
 
     const docs = await Thread.find(query)
-      .populate('author', 'username profilePic rollNumber department batch')
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
       })
@@ -303,14 +305,21 @@ exports.getUserThreads = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // originals in this page (for isReposted)
-    const targets = docs.map((t) => t._id).filter(Boolean);
+    // (viewer-specific filtering not necessary here because author is fixed public persona,
+    // but we should still hide threads that repost/quote blocked people for the viewer)
+    const visible = docs.filter((t) => {
+      if (!viewerPersonaId) return true;
+      const involved = collectPersonaIdsInThreadDoc(t);
+      for (const id of involved) if (blockedSet.has(id)) return false;
+      return true;
+    });
 
     const repostedTargetIdSet = new Set();
-    if (req.user && targets.length) {
+    if (viewerPersonaId && visible.length) {
+      const targets = visible.map((t) => t._id).filter(Boolean);
       const myReposts = await Thread.find({
         type: 'repost',
-        author: req.user.id,
+        authorPersona: viewerPersonaId,
         repostOf: { $in: targets },
         isDeleted: false,
       })
@@ -320,10 +329,9 @@ exports.getUserThreads = async (req, res) => {
       for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
-    // drop repost/quote if original missing/deleted
-    const formattedThreads = docs
+    const formattedThreads = visible
       .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
-      .map((t) => formatFeedItem(t, req.user?.id, repostedTargetIdSet));
+      .map((t) => formatFeedItem(t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,
@@ -333,27 +341,24 @@ exports.getUserThreads = async (req, res) => {
       pages: Math.ceil(total / limit),
       user: {
         id: user._id,
-        username: user.username,
-        profilePic: user.profilePic,
-        rollNumber: user.rollNumber,
-        department: user.department,
-        batch: user.batch,
+        username: publicPersona?.handle || user.username,
+        displayName: publicPersona?.displayName || user.username,
+        profilePic: publicPersona?.profilePic || '',
+        coverPhoto: publicPersona?.coverPhoto || '',
+        bio: publicPersona?.bio || '',
+        rollNumber: publicPersona?.rollNumber || user.rollNumber,
+        department: publicPersona?.department || user.department,
+        batch: publicPersona?.batch || user.batch,
       },
       threads: formattedThreads,
     });
   } catch (error) {
     console.error('Get user threads error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while fetching user threads',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while fetching user threads', error: error.message });
   }
 };
 
-// @desc    Get single thread by ID
-// @route   GET /api/threads/:threadId
-// @access  Public
+// GET /api/threads/:threadId
 exports.getThreadById = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -363,31 +368,47 @@ exports.getThreadById = async (req, res) => {
     }
 
     const doc = await Thread.findOne({ _id: threadId, isDeleted: false })
-      .populate('author', 'username profilePic rollNumber department batch')
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
       })
       .lean();
 
-    if (!doc) {
-      return res.status(404).json({ success: false, message: 'Thread not found' });
+    if (!doc) return res.status(404).json({ success: false, message: 'Thread not found' });
+
+    let viewerPersonaId = null;
+    let ownedPersonaIds = [];
+    let blockedSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+      ownedPersonaIds = ctx?.ownedPersonaIds || [];
+      blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+      // ✅ deny if any involved persona is blocked
+      const involved = collectPersonaIdsInThreadDoc(doc);
+      for (const id of involved) {
+        if (blockedSet.has(id)) {
+          return res.status(403).json({ success: false, message: 'Cannot view this content' });
+        }
+      }
     }
 
-    // isReposted = "have I reposted THIS item?"
     const repostedTargetIdSet = new Set();
-    if (req.user) {
+    if (viewerPersonaId) {
       const myRepost = await Thread.findOne({
         type: 'repost',
-        author: req.user.id,
+        authorPersona: viewerPersonaId,
         repostOf: threadId,
         isDeleted: false,
       })
@@ -399,147 +420,91 @@ exports.getThreadById = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      thread: formatFeedItem(doc, req.user?.id, repostedTargetIdSet),
+      thread: formatFeedItem(doc, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet),
     });
   } catch (error) {
     console.error('Get thread error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while fetching thread',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while fetching thread', error: error.message });
   }
 };
 
-// @desc    Delete a thread
-// @route   DELETE /api/threads/:threadId
-// @access  Private
+// DELETE /api/threads/:threadId
 exports.deleteThread = async (req, res) => {
   try {
     const { threadId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid thread ID',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const thread = await Thread.findOne({
-      _id: threadId,
-      isDeleted: false,
-    });
+    const thread = await Thread.findOne({ _id: threadId, isDeleted: false });
+    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found' });
 
-    if (!thread) {
-      return res.status(404).json({
-        success: false,
-        message: 'Thread not found',
-      });
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (!ctx.ownedPersonaIds.includes(thread.authorPersona.toString())) {
+      return res.status(403).json({ success: false, message: 'Not authorized to delete this thread' });
     }
 
-    // Check if user is the author
-    if (thread.author.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this thread',
-      });
-    }
-
-    // Delete images from Cloudinary if they exist
     if (thread.images && thread.images.length > 0) {
       const publicIds = thread.images.map((img) => img.publicId);
       try {
         await deleteMultipleFromCloudinary(publicIds);
-        console.log(`✅ Deleted ${publicIds.length} images from Cloudinary`);
       } catch (cloudinaryError) {
         console.error('⚠️ Cloudinary deletion error:', cloudinaryError);
-        // Continue with thread deletion even if Cloudinary fails
       }
     }
 
-    // Soft delete (mark as deleted instead of removing)
     thread.isDeleted = true;
     await thread.save();
 
-    res.status(200).json({
-      success: true,
-      message: 'Thread deleted successfully',
-    });
+    return res.status(200).json({ success: true, message: 'Thread deleted successfully' });
   } catch (error) {
     console.error('Delete thread error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while deleting thread',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while deleting thread', error: error.message });
   }
 };
 
-// @desc    Like/Unlike a thread
-// @route   PUT /api/threads/:threadId/like
-// @access  Private
+// PUT /api/threads/:threadId/like
 exports.toggleLike = async (req, res) => {
   try {
     const { threadId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid thread ID',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const thread = await Thread.findOne({
-      _id: threadId,
-      isDeleted: false,
-    });
+    const thread = await Thread.findOne({ _id: threadId, isDeleted: false });
+    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found' });
 
-    if (!thread) {
-      return res.status(404).json({
-        success: false,
-        message: 'Thread not found',
-      });
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
-    const userId = req.user.id;
-    const likeIndex = thread.likes.indexOf(userId);
+    const personaId = ctx.activePersonaId.toString();
+    const idx = (thread.likes || []).findIndex((id) => id.toString() === personaId);
 
-    if (likeIndex > -1) {
-      // Unlike
-      thread.likes.splice(likeIndex, 1);
+    if (idx > -1) {
+      thread.likes.splice(idx, 1);
       await thread.save();
-
-      return res.status(200).json({
-        success: true,
-        message: 'Thread unliked',
-        isLiked: false,
-        likesCount: thread.likes.length,
-      });
-    } else {
-      // Like
-      thread.likes.push(userId);
-      await thread.save();
-
-      return res.status(200).json({
-        success: true,
-        message: 'Thread liked',
-        isLiked: true,
-        likesCount: thread.likes.length,
-      });
+      return res.status(200).json({ success: true, message: 'Thread unliked', isLiked: false, likesCount: thread.likes.length });
     }
+
+    thread.likes.push(ctx.activePersonaId);
+    await thread.save();
+    return res.status(200).json({ success: true, message: 'Thread liked', isLiked: true, likesCount: thread.likes.length });
   } catch (error) {
     console.error('Toggle like error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while toggling like',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while toggling like', error: error.message });
   }
 };
 
-// @desc    Repost / Undo repost
-// @route   PUT /api/threads/:threadId/repost
-// @access  Private
+// PUT /api/threads/:threadId/repost
 exports.toggleRepost = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -548,74 +513,51 @@ exports.toggleRepost = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select(
-      '_id repostCount type'
-    );
-    if (!original) {
-      return res.status(404).json({ success: false, message: 'Thread not found' });
+    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id repostCount type');
+    if (!original) return res.status(404).json({ success: false, message: 'Thread not found' });
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
-    const userId = req.user.id;
-
-    // find active repost (if any)
     const existing = await Thread.findOne({
       type: 'repost',
       repostOf: threadId,
-      author: userId,
+      authorPersona: ctx.activePersonaId,
       isDeleted: false,
     }).select('_id');
 
     if (existing) {
-      // Undo repost
       await Thread.findByIdAndUpdate(existing._id, { isDeleted: true });
+      await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: -1 } });
 
-      await Thread.findByIdAndUpdate(threadId, {
-        $inc: { repostCount: -1 },
-      });
-
-      return res.status(200).json({
-        success: true,
-        message: 'Repost removed',
-        isReposted: false,
-      });
+      return res.status(200).json({ success: true, message: 'Repost removed', isReposted: false });
     }
 
-    // Create repost
     const repost = await Thread.create({
       type: 'repost',
       repostOf: threadId,
-      author: userId,
-      content: '', // repost itself has no content for now
-      isAnonymous: false,
+      authorPersona: ctx.activePersonaId,
+      content: '',
       images: [],
     });
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
 
-    return res.status(201).json({
-      success: true,
-      message: 'Reposted',
-      isReposted: true,
-      repostId: repost._id,
-    });
+    return res.status(201).json({ success: true, message: 'Reposted', isReposted: true, repostId: repost._id });
   } catch (error) {
-    // handle race: unique partial index violation
-    if (error?.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Already reposted' });
-    }
+    if (error?.code === 11000) return res.status(400).json({ success: false, message: 'Already reposted' });
 
     console.error('Toggle repost error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while toggling repost',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while toggling repost', error: error.message });
   }
 };
 
-// @desc    Create quote repost
-// @route   POST /api/threads/:threadId/quote
-// @access  Private
+// POST /api/threads/:threadId/quote
 exports.createQuoteRepost = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -626,73 +568,73 @@ exports.createQuoteRepost = async (req, res) => {
     }
 
     const text = typeof content === 'string' ? content.trim() : '';
-    if (!text) {
-      return res.status(400).json({ success: false, message: 'Quote content is required' });
-    }
+    if (!text) return res.status(400).json({ success: false, message: 'Quote content is required' });
 
-    // ✅ allow quoting ANY existing thread (thread / repost / quote)
     const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id');
-    if (!target) {
-      return res.status(404).json({ success: false, message: 'Thread not found' });
+    if (!target) return res.status(404).json({ success: false, message: 'Thread not found' });
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
     const quote = await Thread.create({
       type: 'quote',
-      repostOf: threadId,          // ✅ quote THIS item
-      author: req.user.id,
+      repostOf: threadId,
+      authorPersona: ctx.activePersonaId,
       content: text,
-      isAnonymous: false,
       images: [],
     });
 
-    // ✅ increment repostCount on the quoted target (thread2 in your example)
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
 
-    // populate for response (include one more level for repost-of-repost display)
-    await quote.populate('author', 'username profilePic rollNumber department batch');
+    await quote.populate('authorPersona', 'handle displayName profilePic rollNumber department batch type');
     await quote.populate({
       path: 'repostOf',
       match: { isDeleted: false },
       populate: [
-        { path: 'author', select: 'username profilePic rollNumber department batch' },
+        { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
         {
           path: 'repostOf',
           match: { isDeleted: false },
-          populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+          populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
         },
       ],
     });
 
-    // ✅ isReposted here means "have I reposted this quote thread?" -> false for a new quote
-    const repostedTargetIdSet = new Set();
-
     return res.status(201).json({
       success: true,
       message: 'Quote repost created',
-      thread: formatFeedItem(quote, req.user.id, repostedTargetIdSet),
+      thread: formatFeedItem(quote, ctx.activePersonaId, ctx.ownedPersonaIds, new Set()),
     });
   } catch (error) {
     console.error('Create quote repost error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while creating quote repost',
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Server error while creating quote repost', error: error.message });
   }
 };
 
-// @desc    Get personalized feed (from followed users)
-// @route   GET /api/threads/feed/following
-// @access  Private
+// GET /api/threads/feed/following
 exports.getFollowingFeed = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const user = await User.findById(req.user.id).select('following');
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
 
-    if (!user.following || user.following.length === 0) {
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    const mePersona = await Persona.findById(ctx.activePersonaId).select('following').lean();
+    const followingPersonaIds = mePersona?.following || [];
+
+    if (!followingPersonaIds.length) {
       return res.status(200).json({
         success: true,
         count: 0,
@@ -700,28 +642,26 @@ exports.getFollowingFeed = async (req, res) => {
         page,
         pages: 0,
         threads: [],
-        message: 'Start following users to see their threads here!',
+        message: 'Start following to see threads here!',
       });
     }
 
-    const baseQuery = {
-      author: { $in: user.following },
-      isDeleted: false,
-    };
+    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
 
+    const baseQuery = { authorPersona: { $in: followingPersonaIds }, isDeleted: false };
     const total = await Thread.countDocuments(baseQuery);
 
     const threads = await Thread.find(baseQuery)
-      .populate('author', 'username profilePic rollNumber department batch')
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'author', select: 'username profilePic rollNumber department batch' },
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'author', select: 'username profilePic rollNumber department batch' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
       })
@@ -730,14 +670,22 @@ exports.getFollowingFeed = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // ✅ include quote items too
-    const targets = threads.map((t) => t._id).filter(Boolean);
+    // ✅ filter blocked content (author + nested repost chains)
+    const visible = threads.filter((t) => {
+      const involved = collectPersonaIdsInThreadDoc(t);
+      for (const id of involved) {
+        if (blockedSet.has(id)) return false;
+      }
+      return true;
+    });
+
+    const targets = visible.map((t) => t._id).filter(Boolean);
 
     const repostedTargetIdSet = new Set();
-    if (targets.length) { // ✅ was: if (originals.length)
+    if (targets.length) {
       const myReposts = await Thread.find({
         type: 'repost',
-        author: req.user.id,
+        authorPersona: ctx.activePersonaId,
         repostOf: { $in: targets },
         isDeleted: false,
       })
@@ -747,9 +695,9 @@ exports.getFollowingFeed = async (req, res) => {
       for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
     }
 
-    const formatted = threads
+    const formatted = visible
       .filter((t) => t.type === 'thread' || !!t.repostOf)
-      .map((t) => formatFeedItem(t, req.user.id, repostedTargetIdSet));
+      .map((t) => formatFeedItem(t, ctx.activePersonaId, ctx.ownedPersonaIds, repostedTargetIdSet));
 
     return res.status(200).json({
       success: true,
@@ -761,10 +709,82 @@ exports.getFollowingFeed = async (req, res) => {
     });
   } catch (error) {
     console.error('Get following feed error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while fetching feed',
-      error: error.message,
+    return res.status(500).json({ success: false, message: 'Server error while fetching feed', error: error.message });
+  }
+};
+
+// GET /api/threads/my
+exports.getMyThreads = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    const query = {
+      authorPersona: ctx.activePersonaId,
+      isDeleted: false,
+      type: { $in: ['thread', 'repost', 'quote'] },
+    };
+
+    const total = await Thread.countDocuments(query);
+
+    const docs = await Thread.find(query)
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const mePersona = await Persona.findById(ctx.activePersonaId).select(
+      'handle displayName profilePic coverPhoto bio rollNumber department batch type followers following'
+    );
+
+    // assumes your file already has formatFeedItem()
+    const formatted = docs
+      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
+      .map((t) => formatFeedItem(t, ctx.activePersonaId, ctx.ownedPersonaIds, new Set()));
+
+    return res.status(200).json({
+      success: true,
+      activeMode: ctx.activeMode,
+      count: formatted.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      persona: {
+        id: mePersona?._id,
+        username: mePersona?.handle,
+        displayName: mePersona?.displayName,
+        profilePic: mePersona?.profilePic,
+        coverPhoto: mePersona?.coverPhoto,
+        bio: mePersona?.bio,
+        followersCount: (mePersona?.followers || []).length,
+        followingCount: (mePersona?.following || []).length,
+      },
+      threads: formatted,
     });
+  } catch (error) {
+    console.error('Get my threads error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

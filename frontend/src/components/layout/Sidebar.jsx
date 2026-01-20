@@ -7,8 +7,8 @@ import { useAuthStore } from '@/store/authStore'
 export default function Sidebar({ onCreateThread }) {
   const location = useLocation();
   const { user } = useAuthStore();
-  
-  const profilePath = user ? '/@'+user.username : '/login';
+
+  const profilePath = user ? '/me' : '/login';
 
   const navItems = [
     { name: 'Home', icon: Home, path: '/home' },

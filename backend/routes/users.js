@@ -15,9 +15,16 @@ const {
   updateCoverPhoto,
   updateBio,
   updateUsername, // ✅ add
+  getMyPersonas,
+  setMyMode,
+  setupMyAnonPersona,
+  updateMyAnonPersonaProfilePic,
+  updateMyAnonPersonaCoverPhoto,
+  getMyProfile,
+  getMyActivity,
 } = require('../controllers/controllers.user');
 const { protect } = require('../middleware/middleware.auth');
-const { checkBlock } = require('../middleware/checkBlock');
+// const { checkBlock } = require('../middleware/checkBlock');
 const { uploadSingle, handleUploadError } = require('../middleware/upload');
 const { param, query, body, validationResult } = require('express-validator'); // ✅ add
 
@@ -90,6 +97,51 @@ const usernameValidation = [
     .withMessage('Username can only contain letters, numbers, and underscores'),
 ];
 
+const modeValidation = [
+  body('mode')
+    .exists()
+    .withMessage('mode is required')
+    .bail()
+    .isIn(['public', 'anon'])
+    .withMessage('mode must be "public" or "anon"'),
+];
+
+const anonSetupValidation = [
+  body('handle')
+    .exists()
+    .withMessage('handle is required')
+    .bail()
+    .isString()
+    .withMessage('handle must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 3, max: 20 })
+    .withMessage('handle must be between 3 and 20 characters')
+    .bail()
+    .matches(/^[a-z0-9_]+$/)
+    .withMessage('handle can only contain lowercase letters, numbers, and underscores'),
+
+  body('displayName')
+    .exists()
+    .withMessage('displayName is required')
+    .bail()
+    .isString()
+    .withMessage('displayName must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 1, max: 30 })
+    .withMessage('displayName must be between 1 and 30 characters'),
+
+  body('bio')
+    .optional()
+    .isString()
+    .withMessage('bio must be a string')
+    .bail()
+    .trim()
+    .isLength({ max: 150 })
+    .withMessage('bio cannot exceed 150 characters'),
+];
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -109,6 +161,17 @@ router.get('/blocked', protect, getBlockedUsers);
 router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
 
 // ✅ /me routes
+router.get('/me/personas', protect, getMyPersonas);
+router.put('/me/mode', protect, modeValidation, validate, setMyMode);
+router.get('/me/profile', protect, getMyProfile);
+router.get('/me/activity', protect, getMyActivity);
+
+// ✅ anon setup + optional media
+router.put('/me/personas/anon/setup', protect, anonSetupValidation, validate, setupMyAnonPersona);
+router.put('/me/personas/anon/profile-pic', protect, uploadSingle, handleUploadError, updateMyAnonPersonaProfilePic);
+router.put('/me/personas/anon/cover-photo', protect, uploadSingle, handleUploadError, updateMyAnonPersonaCoverPhoto);
+
+// ✅ user media
 router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateProfilePic);
 router.put('/me/cover-photo', protect, uploadSingle, handleUploadError, updateCoverPhoto);
 router.put('/me/bio', protect, bioValidation, validate, updateBio);
@@ -121,7 +184,7 @@ router.get('/:userId/following', protect, userIdValidation, validate, getFollowi
 
 router.get('/:username/profile', optionalAuth, getUserProfile);
 
-router.post('/:userId/follow', protect, userIdValidation, validate, checkBlock, followUser);
+router.post('/:userId/follow', protect, userIdValidation, validate, followUser);
 router.delete('/:userId/unfollow', protect, userIdValidation, validate, unfollowUser);
 router.post('/:userId/block', protect, userIdValidation, validate, blockUser);
 router.delete('/:userId/unblock', protect, userIdValidation, validate, unblockUser);

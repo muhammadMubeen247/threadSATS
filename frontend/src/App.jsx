@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Home from './pages/Home';
 import ProfilePage from './pages/ProfilePage';
 import ThreadDetail from './pages/ThreadDetail';
+import MeProfilePage from './pages/MeProfilePage';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="thread/:threadId" element={<ThreadDetail />} />
 
         {/* ✅ matches "/@mubeen" as handle="@mubeen" */}
+        <Route path="me" element={<MeProfilePage />} />
         <Route path=":handle" element={<ProfilePage />} />
 
         <Route path="/" element={<Navigate to="/home" replace />} />
