@@ -19,7 +19,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
 
-  // Original thread id (used for like/repost/detail nav)
+  // Original thread id (used to like/repost/detail nav)
   const threadId = thread?.id || thread?._id;
 
   // ✅ repost target is ALWAYS this card's id
@@ -50,7 +50,8 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     setRepostCount(thread.repostCount || 0);
   }, [thread.isLiked, thread.likesCount, thread.isReposted, thread.repostCount]);
 
-  const isOwner = user?._id === thread.author?._id || user?.id === thread.author?.id;
+  // ✅ Use backend-provided ownership when available (persona-aware)
+  const isOwner = Boolean(thread?.isOwner || thread?.isOwn) || user?._id === thread.author?._id || user?.id === thread.author?.id;
 
   const getInitials = (username) => {
     return username?.substring(0, 2).toUpperCase() || 'A';
@@ -70,8 +71,11 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
     const qt = thread.quotedThread;
     const originalId = qt?.id || qt?._id;
-    const originalAuthorUsername = qt?.author?.username;
-    const originalAuthorLink = originalAuthorUsername ? `/@${originalAuthorUsername}` : null;
+
+    // ✅ persona handle (works for public + anon)
+    const originalAuthorHandle = qt?.author?.username || qt?.author?.handle;
+    const originalAuthorLink = originalAuthorHandle ? `/@${originalAuthorHandle}` : null;
+
     const originalImages = Array.isArray(qt?.images) ? qt.images : [];
     const firstImageUrl = originalImages?.[0]?.url || originalImages?.[0] || '';
 
@@ -94,8 +98,8 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         <div className="p-3">
           <div className="flex gap-3">
             <Avatar className="h-8 w-8 shrink-0">
-              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorUsername || 'User'} />
-              <AvatarFallback>{getInitials(originalAuthorUsername)}</AvatarFallback>
+              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorHandle || 'User'} />
+              <AvatarFallback>{getInitials(originalAuthorHandle)}</AvatarFallback>
             </Avatar>
 
             <div className="min-w-0 flex-1">
@@ -106,7 +110,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                     onClick={(e) => e.stopPropagation()}
                     className="text-sm font-semibold hover:underline truncate"
                   >
-                    @{originalAuthorUsername}
+                    @{originalAuthorHandle}
                   </Link>
                 ) : (
                   <span className="text-sm font-semibold">Anonymous</span>
@@ -146,11 +150,13 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const renderRepostedPreview = () => {
     if (thread?.type !== 'repost' || !thread?.repostedThread) return null;
 
-    // Reuse your quoted preview layout by mapping to "qt"
     const qt = thread.repostedThread;
     const originalId = qt?.id || qt?._id;
-    const originalAuthorUsername = qt?.author?.username;
-    const originalAuthorLink = originalAuthorUsername ? `/@${originalAuthorUsername}` : null;
+
+    // ✅ persona handle (works for public + anon)
+    const originalAuthorHandle = qt?.author?.username || qt?.author?.handle;
+    const originalAuthorLink = originalAuthorHandle ? `/@${originalAuthorHandle}` : null;
+
     const originalImages = Array.isArray(qt?.images) ? qt.images : [];
     const firstImageUrl = originalImages?.[0]?.url || originalImages?.[0] || '';
 
@@ -173,8 +179,8 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         <div className="p-3">
           <div className="flex gap-3">
             <Avatar className="h-8 w-8 shrink-0">
-              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorUsername || 'User'} />
-              <AvatarFallback>{getInitials(originalAuthorUsername)}</AvatarFallback>
+              <AvatarImage src={qt?.author?.profilePic} alt={originalAuthorHandle || 'User'} />
+              <AvatarFallback>{getInitials(originalAuthorHandle)}</AvatarFallback>
             </Avatar>
 
             <div className="min-w-0 flex-1">
@@ -185,7 +191,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                     onClick={(e) => e.stopPropagation()}
                     className="text-sm font-semibold hover:underline truncate"
                   >
-                    @{originalAuthorUsername}
+                    @{originalAuthorHandle}
                   </Link>
                 ) : (
                   <span className="text-sm font-semibold">Anonymous</span>
@@ -281,18 +287,19 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const handleFollow = async (e) => {
     e.stopPropagation();
 
-    const authorId = thread.author?._id || thread.author?.id;
+    // ✅ follow by persona handle (works for public + anon)
+    const handle = thread?.author?.username || thread?.author?.handle;
 
-    if (!authorId) {
-      console.error('Author ID is missing:', thread);
+    if (!handle) {
+      console.error('Author handle is missing:', thread);
       return;
     }
 
     try {
       if (isFollowing) {
-        await api.delete(`/users/${authorId}/unfollow`);
+        await api.delete(`/personas/${handle}/follow`);
       } else {
-        await api.post(`/users/${authorId}/follow`);
+        await api.post(`/personas/${handle}/follow`);
       }
       setIsFollowing(!isFollowing);
     } catch (error) {
@@ -312,8 +319,9 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
   const imageUrls = thread.images?.map((img) => img.url || img) || [];
 
-  const isAnonymous = !!thread.isAnonymous;
-  const authorLink = isAnonymous ? null : `/@${thread.author?.username}`;
+  // ✅ ADD THESE (they are currently missing, causing "authorLink is not defined")
+  const authorHandle = thread?.author?.username || thread?.author?.handle;
+  const authorLink = authorHandle ? `/@${authorHandle}` : null;
 
   return (
     <>
@@ -343,14 +351,14 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
           {authorLink ? (
             <Link to={authorLink} onClick={(e) => e.stopPropagation()}>
               <Avatar className="h-10 w-10">
-                <AvatarImage src={thread.author?.profilePic} alt={thread.author?.username} />
-                <AvatarFallback>{getInitials(thread.author?.username)}</AvatarFallback>
+                <AvatarImage src={thread.author?.profilePic} alt={authorHandle || 'User'} />
+                <AvatarFallback>{getInitials(authorHandle)}</AvatarFallback>
               </Avatar>
             </Link>
           ) : (
             <Avatar className="h-10 w-10">
-              <AvatarImage src={thread.author?.profilePic} alt="Anonymous" />
-              <AvatarFallback>A</AvatarFallback>
+              <AvatarImage src={thread.author?.profilePic} alt="User" />
+              <AvatarFallback>{getInitials(authorHandle)}</AvatarFallback>
             </Avatar>
           )}
 
@@ -368,10 +376,10 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                       onClick={(e) => e.stopPropagation()}
                       className="font-semibold hover:underline truncate"
                     >
-                      @{thread.author?.username}
+                      @{authorHandle}
                     </Link>
                   ) : (
-                    <span className="font-semibold">Anonymous</span>
+                    <span className="font-semibold">Unknown</span>
                   )}
 
                   <span className="text-sm text-muted-foreground">•</span>
@@ -380,7 +388,9 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                     {getTimeAgo(thread.createdAt)}
                   </span>
 
-                  {!isOwner && !isAnonymous && (
+                  {/* ✅ follow button visibility now shouldn’t depend on "isAnonymous"
+                      (optional: you can keep/adjust follow behavior separately) */}
+                  {!isOwner && authorHandle ? (
                     <>
                       <span className="text-sm text-muted-foreground">•</span>
                       <Button
@@ -392,11 +402,11 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                         {isFollowing ? 'Following' : 'Follow'}
                       </Button>
                     </>
-                  )}
+                  ) : null}
                 </div>
 
-                {/* Row 2: roll number */}
-                {!isAnonymous && thread.author?.rollNumber ? (
+                {/* Row 2: roll number (only if backend provided it) */}
+                {thread.author?.rollNumber ? (
                   <div className="text-xs text-muted-foreground truncate">
                     {thread.author.rollNumber}
                   </div>
