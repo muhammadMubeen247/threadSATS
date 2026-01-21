@@ -8,12 +8,7 @@ import { getCroppedBlob } from '@/utils/cropImage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 function revoke(url) {
   try {
@@ -154,10 +149,12 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
       const form = new FormData();
       form.append('image', file); // backend expects "image"
 
-      const endpoint = cropTarget === 'cover' ? '/users/me/cover-photo' : '/users/me/profile-pic';
+      // ✅ persona endpoints
+      const endpoint = cropTarget === 'cover' ? '/personas/me/cover-photo' : '/personas/me/profile-pic';
       const res = await api.put(endpoint, form);
 
-      const newUrl = cropTarget === 'cover' ? res?.user?.coverPhoto : res?.user?.profilePic;
+      // ✅ axios wrapper returns data directly
+      const newUrl = cropTarget === 'cover' ? res?.coverPhoto : res?.profilePic;
       if (!newUrl) throw new Error('Upload succeeded but no image URL returned.');
 
       onUpdated?.(cropTarget === 'cover' ? { coverPhoto: newUrl } : { profilePic: newUrl });
@@ -181,7 +178,7 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
       const patch = {};
 
       const nextUsername = (username || '').trim().toLowerCase();
-      const nextBio = (bio ?? '').trimEnd(); // keep leading spaces meaningless; avoid trailing spaces
+      const nextBio = (bio ?? '').trimEnd();
 
       // Basic client-side checks (server will still validate)
       if (!nextUsername) throw new Error('Username is required.');
@@ -195,13 +192,14 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
 
       // Only call endpoints if changed
       if (nextUsername !== initialUsername) {
-        const r1 = await api.put('/users/me/username', { username: nextUsername });
-        patch.username = r1?.user?.username ?? nextUsername;
+        // ✅ persona handle update
+        const r1 = await api.put('/personas/me/handle', { handle: nextUsername });
+        patch.username = r1?.persona?.handle ?? nextUsername; // keep "username" in UI = handle
       }
 
       if ((nextBio || '') !== (initialBio || '')) {
-        const r2 = await api.put('/users/me/bio', { bio: nextBio });
-        patch.bio = typeof r2?.user?.bio === 'string' ? r2.user.bio : nextBio;
+        const r2 = await api.put('/personas/me/bio', { bio: nextBio });
+        patch.bio = typeof r2?.bio === 'string' ? r2.bio : nextBio;
       }
 
       if (Object.keys(patch).length) onUpdated?.(patch);

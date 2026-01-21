@@ -74,4 +74,7 @@ const personaSchema = new mongoose.Schema(
 personaSchema.index({ handle: 1 }, { unique: true });
 personaSchema.index({ ownerUserId: 1, type: 1 }, { unique: true });
 
+// ✅ fast lookup for "public" rollNumber searches
+personaSchema.index({ type: 1, rollNumber: 1 });
+
 module.exports = mongoose.model('Persona', personaSchema);

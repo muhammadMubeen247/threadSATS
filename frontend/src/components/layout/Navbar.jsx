@@ -19,13 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 // ✅ add
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 
 export default function Navbar() {
@@ -35,7 +29,7 @@ export default function Navbar() {
 
   // --- Search state ---
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]); // backend returns { users: [...] }
+  const [results, setResults] = useState([]); // ✅ personas: backend returns { results: [...] }
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -126,12 +120,13 @@ export default function Navbar() {
         const controller = new AbortController();
         abortRef.current = controller;
 
-        const res = await api.get('/users/search', {
+        // ✅ persona search endpoint
+        const res = await api.get('/personas/search', {
           params: { q: trimmedQuery, page: 1, limit: 10 },
           signal: controller.signal,
         });
 
-        setResults(Array.isArray(res.users) ? res.users : []);
+        setResults(Array.isArray(res.results) ? res.results : []);
       } catch (err) {
         // ignore abort errors
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -156,11 +151,14 @@ export default function Navbar() {
     blurTimerRef.current = window.setTimeout(() => setIsDropdownOpen(false), 150);
   };
 
-  const goToUser = (username) => {
+  const goToPersona = (handle) => {
+    const h = (handle || '').trim().replace(/^@+/, '');
+    if (!h) return;
+
     setIsDropdownOpen(false);
     setQuery('');
     setResults([]);
-    navigate(`/@${username}`);
+    navigate(`/@${h}`);
   };
 
   // ✅ mode switcher
@@ -246,7 +244,7 @@ export default function Navbar() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search Bark..."
+              placeholder="Search profiles..."
               className="pl-10"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -262,31 +260,49 @@ export default function Navbar() {
                 ) : searchError ? (
                   <div className="p-3 text-sm text-red-500">{searchError}</div>
                 ) : results.length === 0 ? (
-                  <div className="p-3 text-sm text-muted-foreground">No users found</div>
+                  <div className="p-3 text-sm text-muted-foreground">No profiles found</div>
                 ) : (
                   <ul className="max-h-80 overflow-auto">
-                    {results.map((u) => (
-                      <li key={u.id}>
-                        <button
-                          type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-accent flex items-center gap-3"
-                          onMouseDown={(e) => e.preventDefault()} // prevents blur before click
-                          onClick={() => goToUser(u.username)}
-                        >
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={u.profilePic} alt={u.username} />
-                            <AvatarFallback>{getInitials(u.username)}</AvatarFallback>
-                          </Avatar>
+                    {results.map((p) => {
+                      const handle = p?.handle || p?.username;
+                      const displayName = p?.displayName || handle || 'Profile';
+                      const typeLabel = p?.type === 'anon' ? 'Anon' : 'Public';
 
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">@{u.username}</div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {u.rollNumber} • {u.department} • {u.batch}
+                      // ✅ show rollNumber only for public personas (backend already blanks it for anon)
+                      const rollNumber = p?.type === 'public' && p?.rollNumber ? p.rollNumber : '';
+
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left hover:bg-accent flex items-center gap-3"
+                            onMouseDown={(e) => e.preventDefault()} // prevents blur before click
+                            onClick={() => goToPersona(handle)}
+                          >
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={p.profilePic} alt={handle || 'profile'} />
+                              <AvatarFallback>{getInitials(handle)}</AvatarFallback>
+                            </Avatar>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">
+                                @{handle}{' '}
+                                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border text-muted-foreground align-middle">
+                                  {typeLabel}
+                                </span>
+                              </div>
+
+                              {/* ✅ second line now includes rollNumber for public personas */}
+                              <div className="text-xs text-muted-foreground truncate">
+                                {displayName}
+                                {rollNumber ? ` • ${rollNumber}` : ''}
+                                {typeof p.threadsCount === 'number' ? ` • ${p.threadsCount} posts` : ''}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const Persona = require('../models/Persona');
 const Thread = require('../models/Thread');
 const Comment = require('../models/Comment'); // ✅ add
+const User = require('../models/User');
+const cloudinary = require('../config/cloudinary');
+const { Readable } = require('stream');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
 
 // helper: determine if viewer <-> target are blocked either way
@@ -168,6 +171,25 @@ const formatCommentItem = (c, viewerPersonaId) => {
         }
       : null,
   };
+};
+
+const uploadBufferToCloudinary = async ({ buffer, folder, publicId }) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'image',
+        overwrite: true,
+        public_id: publicId,
+      },
+      (err, result) => (err ? reject(err) : resolve(result))
+    );
+
+    const readable = new Readable();
+    readable.push(buffer);
+    readable.push(null);
+    readable.pipe(uploadStream);
+  });
 };
 
 // GET /api/personas/:handle/profile  (optionalAuth)
@@ -623,6 +645,314 @@ exports.getPersonaRepliesByHandle = async (req, res) => {
     });
   } catch (error) {
     console.error('getPersonaRepliesByHandle error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ PUT /api/personas/me/handle
+// Updates ACTIVE persona handle.
+// If active persona is PUBLIC -> also sync User.username for compatibility.
+exports.updateMyActivePersonaHandle = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const handle = normalizeHandle(req.body?.handle || req.body?.username);
+    if (!handle) return res.status(400).json({ success: false, message: 'handle is required' });
+
+    // enforce same rules you already use elsewhere
+    if (!/^[a-z0-9_]+$/.test(handle)) {
+      return res.status(400).json({ success: false, message: 'handle can only contain lowercase letters, numbers, and underscores' });
+    }
+    if (handle.length < 3 || handle.length > 20) {
+      return res.status(400).json({ success: false, message: 'handle must be between 3 and 20 characters' });
+    }
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type handle displayName');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    // If anon is active, ensure configured (safe-guard)
+    if (mePersona.type === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    // unique among Personas
+    const existsPersona = await Persona.findOne({ handle, _id: { $ne: mePersona._id } }).select('_id');
+    if (existsPersona) return res.status(400).json({ success: false, message: 'Handle already taken' });
+
+    // also avoid collision with User.username (keeps /@handle unambiguous and aligns with your earlier logic)
+    const existsUser = await User.findOne({ username: handle, _id: { $ne: userId } }).select('_id');
+    if (existsUser) return res.status(400).json({ success: false, message: 'Handle already taken' });
+
+    mePersona.handle = handle;
+
+    // optional: keep displayName aligned if it was identical-ish
+    if (!mePersona.displayName || mePersona.displayName === mePersona.handle) {
+      mePersona.displayName = handle;
+    }
+
+    await mePersona.save();
+
+    // ✅ If this is the PUBLIC persona, also sync the actual User.username
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { username: handle } });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Handle updated',
+      persona: {
+        id: mePersona._id,
+        type: mePersona.type,
+        handle: mePersona.handle,
+        username: mePersona.handle,
+        displayName: mePersona.displayName || mePersona.handle,
+      },
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Handle already taken' });
+    }
+    console.error('updateMyActivePersonaHandle error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ PUT /api/personas/me/bio
+exports.updateMyActivePersonaBio = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const bioRaw = req.body?.bio;
+    const bio = typeof bioRaw === 'string' ? bioRaw.trim() : '';
+
+    if (bio.length > 150) {
+      return res.status(400).json({ success: false, message: 'Bio cannot exceed 150 characters' });
+    }
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type bio');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    // anon safety
+    if (mePersona.type === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    mePersona.bio = bio;
+    await mePersona.save();
+
+    // keep old behavior: syncing User.bio only for public persona (optional but consistent with your existing system)
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { bio } });
+    }
+
+    return res.status(200).json({ success: true, message: 'Bio updated', bio: mePersona.bio || '' });
+  } catch (error) {
+    console.error('updateMyActivePersonaBio error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ PUT /api/personas/me/profile-pic  (multipart/form-data: image)
+exports.updateMyActivePersonaProfilePic = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, message: 'No image uploaded. Send multipart/form-data with field name "image".' });
+    }
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type profilePic');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    if (mePersona.type === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    const uploadResult = await uploadBufferToCloudinary({
+      buffer: req.file.buffer,
+      folder: 'threadsats/personas/profile_pics',
+      publicId: `persona_${mePersona._id}_profile`,
+    });
+
+    mePersona.profilePic = uploadResult.secure_url;
+    await mePersona.save();
+
+    // optional sync: if public persona, also sync User.profilePic
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { profilePic: uploadResult.secure_url } });
+    }
+
+    return res.status(200).json({ success: true, message: 'Profile picture updated', profilePic: mePersona.profilePic });
+  } catch (error) {
+    console.error('updateMyActivePersonaProfilePic error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ PUT /api/personas/me/cover-photo  (multipart/form-data: image)
+exports.updateMyActivePersonaCoverPhoto = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, message: 'No image uploaded. Send multipart/form-data with field name "image".' });
+    }
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type coverPhoto');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    if (mePersona.type === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    const uploadResult = await uploadBufferToCloudinary({
+      buffer: req.file.buffer,
+      folder: 'threadsats/personas/cover_photos',
+      publicId: `persona_${mePersona._id}_cover`,
+    });
+
+    mePersona.coverPhoto = uploadResult.secure_url;
+    await mePersona.save();
+
+    // optional sync: if public persona, also sync User.coverPhoto
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { coverPhoto: uploadResult.secure_url } });
+    }
+
+    return res.status(200).json({ success: true, message: 'Cover photo updated', coverPhoto: mePersona.coverPhoto });
+  } catch (error) {
+    console.error('updateMyActivePersonaCoverPhoto error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ GET /api/personas/search?q=... (optionalAuth)
+// handle prefix search using regex on indexed "handle"
+exports.searchPersonas = async (req, res) => {
+  try {
+    const rawQ = typeof req.query.q === 'string' ? req.query.q : '';
+    const qRaw = rawQ.trim().replace(/^@+/, '');
+    const q = qRaw.toLowerCase();
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
+    if (!q) {
+      return res.status(200).json({ success: true, q: '', page, pages: 0, count: 0, total: 0, results: [] });
+    }
+
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const handleRegex = new RegExp(`^${escaped}`, 'i');
+
+    // ✅ rollNumber prefix + exact match (PUBLIC only)
+    const escapedRaw = qRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rollPrefixRegex = new RegExp(`^${escapedRaw}`, 'i');
+    const rollExactRegex = new RegExp(`^${escapedRaw}$`, 'i');
+
+    // Decide when to include rollNumber search
+    const enableRollSearch = qRaw.length >= 2; // adjust to 3 if you want less enumeration
+
+    // viewer context (optional)
+    let viewerPersonaId = null;
+    let blockedSet = new Set();
+    let viewerFollowingSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+
+      if (viewerPersonaId) {
+        blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+        const viewer = await Persona.findById(viewerPersonaId).select('following').lean();
+        for (const id of viewer?.following || []) viewerFollowingSet.add(id.toString());
+      }
+    }
+
+    const baseQuery = enableRollSearch
+      ? {
+          $or: [
+            { handle: { $regex: handleRegex } },
+            { type: 'public', rollNumber: { $regex: rollPrefixRegex } },
+          ],
+        }
+      : { handle: { $regex: handleRegex } };
+
+    const total = await Persona.countDocuments(baseQuery);
+
+    const personas = await Persona.find(baseQuery)
+      .select('_id handle displayName profilePic type followers following rollNumber')
+      .sort({ handle: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const visible = viewerPersonaId ? personas.filter((p) => !blockedSet.has(p._id.toString())) : personas;
+
+    // threadsCount aggregation unchanged...
+    const ids = visible.map((p) => p._id);
+    const counts = await Thread.aggregate([
+      { $match: { authorPersona: { $in: ids }, isDeleted: false } },
+      { $group: { _id: '$authorPersona', threadsCount: { $sum: 1 } } },
+    ]);
+    const threadsCountMap = new Map(counts.map((c) => [c._id.toString(), c.threadsCount]));
+
+    // ✅ optional: rank exact rollNumber matches first
+    const results = visible
+      .map((p) => {
+        const roll = p.type === 'public' ? (p.rollNumber || '') : '';
+        const exactRollMatch = roll ? rollExactRegex.test(roll) : false;
+
+        return {
+          _rank: exactRollMatch ? 0 : 1,
+          id: p._id,
+          type: p.type,
+          handle: p.handle,
+          username: p.handle,
+          displayName: p.displayName || p.handle,
+          profilePic: p.profilePic || '',
+          rollNumber: p.type === 'public' ? p.rollNumber || '' : '',
+          followersCount: (p.followers || []).length,
+          followingCount: (p.following || []).length,
+          threadsCount: threadsCountMap.get(p._id.toString()) || 0,
+          isFollowing: viewerPersonaId ? viewerFollowingSet.has(p._id.toString()) : false,
+        };
+      })
+      .sort((a, b) => a._rank - b._rank)
+      .map(({ _rank, ...rest }) => rest);
+
+    return res.status(200).json({
+      success: true,
+      q: qRaw,
+      page,
+      pages: Math.ceil(total / limit),
+      count: results.length,
+      total,
+      results,
+    });
+  } catch (error) {
+    console.error('searchPersonas error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

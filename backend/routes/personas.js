@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 
-const { param, validationResult } = require('express-validator');
+const { param, body, validationResult } = require('express-validator'); // ✅ add
+const { protect } = require('../middleware/middleware.auth');
+const { uploadSingle, handleUploadError } = require('../middleware/upload'); // ✅ add
 
 const {
   getPersonaProfileByHandle,
@@ -9,12 +11,19 @@ const {
   unfollowPersonaByHandle,
   blockPersonaByHandle,
   unblockPersonaByHandle,
-  getPersonaThreadsByHandle,       // ✅ add
-  getPersonaLikedThreadsByHandle,  // ✅ add
-  getPersonaRepliesByHandle,       // ✅ add
-} = require('../controllers/controllers.persona');
+  getPersonaThreadsByHandle,
+  getPersonaLikedThreadsByHandle,
+  getPersonaRepliesByHandle,
 
-const { protect } = require('../middleware/middleware.auth');
+  // ✅ add "me" editors
+  updateMyActivePersonaHandle,
+  updateMyActivePersonaBio,
+  updateMyActivePersonaProfilePic,
+  updateMyActivePersonaCoverPhoto,
+
+  // ✅ add search
+  searchPersonas,
+} = require('../controllers/controllers.persona');
 
 // Optional auth middleware (same idea as in threads.js)
 const optionalAuth = async (req, res, next) => {
@@ -61,6 +70,47 @@ const handleValidation = [
     .withMessage('Handle must be between 3 and 30 characters'),
 ];
 
+const handleUpdateValidation = [
+  body('handle')
+    .optional()
+    .isString()
+    .withMessage('handle must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 3, max: 20 })
+    .withMessage('handle must be between 3 and 20 characters')
+    .bail()
+    .matches(/^[a-z0-9_]+$/)
+    .withMessage('handle can only contain lowercase letters, numbers, and underscores'),
+  body('username') // allow username alias too
+    .optional()
+    .isString()
+    .withMessage('username must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 3, max: 20 })
+    .withMessage('username must be between 3 and 20 characters')
+    .bail()
+    .matches(/^[a-z0-9_]+$/)
+    .withMessage('username can only contain lowercase letters, numbers, and underscores'),
+];
+
+const bioUpdateValidation = [
+  body('bio')
+    .exists()
+    .withMessage('bio is required')
+    .bail()
+    .isString()
+    .withMessage('bio must be a string')
+    .bail()
+    .trim()
+    .isLength({ max: 150 })
+    .withMessage('bio cannot exceed 150 characters'),
+];
+
+// ✅ search (public/optional-auth)
+router.get('/search', optionalAuth, searchPersonas);
+
 // public/optional-auth
 router.get('/:handle/profile', handleValidation, validate, optionalAuth, getPersonaProfileByHandle);
 
@@ -75,5 +125,11 @@ router.delete('/:handle/follow', handleValidation, validate, protect, unfollowPe
 
 router.post('/:handle/block', handleValidation, validate, protect, blockPersonaByHandle);
 router.delete('/:handle/block', handleValidation, validate, protect, unblockPersonaByHandle);
+
+// ✅ "me" edit routes (protected)
+router.put('/me/handle', protect, handleUpdateValidation, validate, updateMyActivePersonaHandle);
+router.put('/me/bio', protect, bioUpdateValidation, validate, updateMyActivePersonaBio);
+router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateMyActivePersonaProfilePic);
+router.put('/me/cover-photo', protect, uploadSingle, handleUploadError, updateMyActivePersonaCoverPhoto);
 
 module.exports = router;
