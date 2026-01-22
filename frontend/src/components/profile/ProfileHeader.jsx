@@ -17,13 +17,8 @@ import EditProfileModal from '@/components/profile/EditProfileModal'; // ✅ add
 import PersonaConnectionsModal from '@/components/profile/PersonaConnectionsModal'; // ✅ add
 
 export default function ProfileHeader(props) {
-  const {
-    profile,
-    isOwnProfile,
-    onFollowToggle,
-    onEditProfile,
-    onProfilePicUpdated,
-  } = props;
+  const { profile, onFollowToggle, onProfilePicUpdated } = props;
+
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
@@ -54,8 +49,12 @@ export default function ProfileHeader(props) {
     setFollowersCount(Number(profile?.followersCount ?? 0));
   }, [profile?.isFollowing, profile?.followersCount]);
 
+  // ✅ derive edit permissions from backend
+  const isActivePersona = Boolean(profile?.isActivePersona);
+
   const openPicPicker = () => {
-    if (!isOwnProfile || isUploadingPic) return;
+    // ✅ only active persona can edit its media
+    if (!isActivePersona || isUploadingPic) return;
     setPicError('');
     fileInputRef.current?.click();
   };
@@ -196,7 +195,7 @@ export default function ProfileHeader(props) {
               </Avatar>
 
               {/* Hidden input */}
-              {isOwnProfile && (
+              {isActivePersona && (
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -328,11 +327,11 @@ export default function ProfileHeader(props) {
               </div>
             </div>
             <div className="mb-12">
-              {isOwnProfile ? (
+              {isActivePersona ? (
                 <Button
                   variant="outline"
                   type="button"
-                  onClick={() => setIsEditOpen(true)} // ✅ open modal here
+                  onClick={() => setIsEditOpen(true)}
                 >
                   Edit Profile
                 </Button>

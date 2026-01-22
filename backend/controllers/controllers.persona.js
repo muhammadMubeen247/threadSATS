@@ -220,7 +220,6 @@ exports.getPersonaProfileByHandle = async (req, res) => {
     const persona = await findPersonaByHandle(handle);
     if (!persona) return res.status(404).json({ success: false, message: 'Profile not found' });
 
-    // viewer context (optional)
     let viewerPersonaId = null;
     let ownedPersonaIds = [];
 
@@ -239,10 +238,16 @@ exports.getPersonaProfileByHandle = async (req, res) => {
 
     const isOwnProfile = ownedPersonaIds.some((id) => id.toString() === persona._id.toString());
 
+    // ✅ NEW: only true when the viewed persona is the currently active persona
+    const isActivePersona = viewerPersonaId
+      ? persona._id.toString() === viewerPersonaId.toString()
+      : false;
+
     let isFollowing = false;
     let isBlocked = false;
 
-    if (viewerPersonaId && !isOwnProfile) {
+    // ✅ keep follow-state even if it's your other persona (so follow/unfollow works)
+    if (viewerPersonaId && !isActivePersona) {
       const viewer = await Persona.findById(viewerPersonaId).select('following blocked').lean();
       if (viewer) {
         isFollowing = (viewer.following || []).some((id) => id.toString() === persona._id.toString());
@@ -277,6 +282,7 @@ exports.getPersonaProfileByHandle = async (req, res) => {
         threadsCount,
 
         isOwnProfile,
+        isActivePersona, // ✅ add
         isFollowing,
         isBlocked,
       },

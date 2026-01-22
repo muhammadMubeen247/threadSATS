@@ -81,7 +81,7 @@ router.post(
 
 router.get(
   '/:commentId/replies',
-  optionalAuth,
+  protect,
   commentIdValidation,
   validate,
   getCommentReplies
@@ -89,7 +89,7 @@ router.get(
 
 router.get(
   '/:commentId',
-  optionalAuth,
+  protect,
   commentIdValidation,
   validate,
   getCommentById

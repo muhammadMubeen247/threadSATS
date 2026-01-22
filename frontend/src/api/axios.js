@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useAuthStore } from '@/store/authStore'; // ✅ add
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
@@ -38,8 +39,26 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const message = error.response?.data?.message || 'Something went wrong';
-    return Promise.reject(new Error(message));
+    const status = error?.response?.status;
+
+    // ✅ hard-enforce login-required
+    if (status === 401) {
+      try {
+        useAuthStore.getState().logout();
+      } catch {
+        // ignore
+      }
+
+      // avoid redirect loop
+      if (window.location.pathname !== '/login') {
+        window.location.replace('/login');
+      }
+    }
+
+    // ✅ keep the original axios error (preserves status, response, etc.)
+    const message = error?.response?.data?.message || error?.message || 'Something went wrong';
+    error.userMessage = message;
+    return Promise.reject(error);
   }
 );
 

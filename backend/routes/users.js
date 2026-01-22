@@ -158,7 +158,7 @@ const validate = (req, res, next) => {
 
 // ✅ Put static routes first
 router.get('/blocked', protect, getBlockedUsers);
-router.get('/search', optionalAuth, searchValidation, validate, searchUsers);
+router.get('/search', protect, searchValidation, validate, searchUsers);
 
 // ✅ /me routes
 router.get('/me/personas', protect, getMyPersonas);
@@ -182,7 +182,7 @@ router.get('/:userId/activity', protect, userIdValidation, validate, getUserActi
 router.get('/:userId/followers', protect, userIdValidation, validate, getFollowers);
 router.get('/:userId/following', protect, userIdValidation, validate, getFollowing);
 
-router.get('/:username/profile', optionalAuth, getUserProfile);
+router.get('/:username/profile', protect, getUserProfile);
 
 router.post('/:userId/follow', protect, userIdValidation, validate, followUser);
 router.delete('/:userId/unfollow', protect, userIdValidation, validate, unfollowUser);

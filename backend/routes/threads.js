@@ -12,36 +12,11 @@ const {
   getFollowingFeed,
   toggleRepost,
   createQuoteRepost,
-  getMyThreads, // ✅ use the exported handler directly
+  getMyThreads,
 } = require('../controllers/controllers.thread');
 
 const { createComment, getThreadComments } = require('../controllers/controllers.comment');
 const { protect } = require('../middleware/middleware.auth');
-
-// Optional auth middleware (allows both authenticated and guest access)
-const optionalAuth = async (req, res, next) => {
-  let token;
-
-  if (req.cookies.token) {
-    token = req.cookies.token;
-  } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
-
-  if (token) {
-    try {
-      const jwt = require('jsonwebtoken');
-      const User = require('../models/User');
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select('-password');
-    } catch (error) {
-      req.user = null;
-    }
-  }
-
-  next();
-};
 
 // ✅ validations that were missing
 const userIdValidation = [param('userId').isMongoId().withMessage('Invalid user ID')];
@@ -56,10 +31,7 @@ const createThreadValidation = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('content cannot exceed 500 characters'),
-  body('images')
-    .optional()
-    .isArray()
-    .withMessage('images must be an array'),
+  body('images').optional().isArray().withMessage('images must be an array'),
 ];
 
 const validate = (req, res, next) => {
@@ -96,15 +68,15 @@ const quoteValidation = [
     .withMessage('Quote must be between 1 and 500 characters'),
 ];
 
-// ✅ Public routes (with optional auth)
-router.get('/', optionalAuth, getAllThreads);
+// ✅ ALL routes require login now
+router.get('/', protect, getAllThreads);
 router.get('/feed/following', protect, getFollowingFeed);
 
 // ✅ IMPORTANT: keep /me BEFORE /:threadId
 router.get('/me', protect, getMyThreads);
 
-router.get('/user/:userId', userIdValidation, validate, optionalAuth, getUserThreads);
-router.get('/:threadId', threadIdValidation, validate, optionalAuth, getThreadById);
+router.get('/user/:userId', protect, userIdValidation, validate, getUserThreads);
+router.get('/:threadId', protect, threadIdValidation, validate, getThreadById);
 
 // ✅ Protected routes
 router.post('/', protect, createThreadValidation, validate, createThread);
@@ -116,6 +88,6 @@ router.post('/:threadId/quote', protect, threadIdValidation, validate, quoteVali
 
 // Comment routes
 router.post('/:threadId/comments', protect, threadIdValidation, validate, commentValidation, validate, createComment);
-router.get('/:threadId/comments', optionalAuth, threadIdValidation, validate, getThreadComments);
+router.get('/:threadId/comments', protect, threadIdValidation, validate, getThreadComments);
 
 module.exports = router;

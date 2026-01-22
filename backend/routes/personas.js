@@ -111,19 +111,19 @@ const bioUpdateValidation = [
 ];
 
 // ✅ search (public/optional-auth)
-router.get('/search', optionalAuth, searchPersonas);
+router.get('/search', protect, searchPersonas);
 
 // public/optional-auth
-router.get('/:handle/profile', handleValidation, validate, optionalAuth, getPersonaProfileByHandle);
+router.get('/:handle/profile', handleValidation, validate, protect, getPersonaProfileByHandle);
 
 // ✅ content endpoints (public/optional-auth)
-router.get('/:handle/threads', handleValidation, validate, optionalAuth, getPersonaThreadsByHandle);
-router.get('/:handle/likes', handleValidation, validate, optionalAuth, getPersonaLikedThreadsByHandle);
-router.get('/:handle/replies', handleValidation, validate, optionalAuth, getPersonaRepliesByHandle);
+router.get('/:handle/threads', handleValidation, validate, protect, getPersonaThreadsByHandle);
+router.get('/:handle/likes', handleValidation, validate, protect, getPersonaLikedThreadsByHandle);
+router.get('/:handle/replies', handleValidation, validate, protect, getPersonaRepliesByHandle);
 
 // ✅ followers/following lists (public/optional-auth)
-router.get('/:handle/followers', handleValidation, validate, optionalAuth, getPersonaFollowersByHandle);
-router.get('/:handle/following', handleValidation, validate, optionalAuth, getPersonaFollowingByHandle);
+router.get('/:handle/followers', handleValidation, validate, protect, getPersonaFollowersByHandle);
+router.get('/:handle/following', handleValidation, validate, protect, getPersonaFollowingByHandle);
 
 // protected interactions
 router.post('/:handle/follow', handleValidation, validate, protect, followPersonaByHandle);
