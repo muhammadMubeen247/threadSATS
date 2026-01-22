@@ -163,7 +163,7 @@ router.get('/search', protect, searchValidation, validate, searchUsers);
 // ✅ /me routes
 router.get('/me/personas', protect, getMyPersonas);
 router.put('/me/mode', protect, modeValidation, validate, setMyMode);
-// router.get('/me/profile', protect, getMyProfile);
+router.get('/me/profile', protect, getMyProfile);
 // router.get('/me/activity', protect, getMyActivity);
 
 // ✅ anon setup + optional media

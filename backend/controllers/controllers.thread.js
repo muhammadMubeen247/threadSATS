@@ -515,6 +515,7 @@ exports.toggleRepost = async (req, res) => {
 
     const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id repostCount type');
     if (!original) return res.status(404).json({ success: false, message: 'Thread not found' });
+    if (original.type==='repost') return res.status(400).json({success: false, message: 'Cannot repost a repost'});
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
@@ -572,6 +573,8 @@ exports.createQuoteRepost = async (req, res) => {
 
     const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id');
     if (!target) return res.status(404).json({ success: false, message: 'Thread not found' });
+    
+    if (target.type==='repost') return res.status(400).json({success:false, message: 'Cannot quote a repost'});
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });

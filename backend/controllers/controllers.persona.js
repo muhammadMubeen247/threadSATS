@@ -88,15 +88,50 @@ const collectPersonaIdsInThreadDoc = (doc) => {
   return ids;
 };
 
+// ✅ helper: format author persona for thread cards (PII-safe for anon)
+const formatAuthorPersonaForThread = (p) => {
+  if (!p) return null;
+
+  const isPublic = p.type === 'public';
+  return {
+    id: p._id,
+    handle: p.handle,
+    username: p.handle,
+    displayName: p.displayName || p.handle,
+    profilePic: p.profilePic || '',
+    type: p.type,
+
+    // show only for public personas
+    rollNumber: isPublic ? p.rollNumber || '' : '',
+    department: isPublic ? p.department || '' : '',
+    batch: isPublic ? p.batch || '' : '',
+  };
+};
+
+// ✅ helper: embed original thread for repost/quote previews (ThreadCard expects qt.author + qt.content)
+const formatEmbeddedThread = (t) => {
+  if (!t || typeof t !== 'object') return null;
+
+  const author = t.authorPersona && typeof t.authorPersona === 'object' ? t.authorPersona : null;
+
+  return {
+    id: t._id,
+    type: t.type || 'thread',
+    content: t.content || '',
+    images: t.images || [],
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+
+    author: formatAuthorPersonaForThread(author),
+  };
+};
+
 // ✅ minimal formatting to keep frontend stable and avoid leaking user linkage
 const formatThreadItem = (t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet) => {
   const author = t.authorPersona && typeof t.authorPersona === 'object' ? t.authorPersona : null;
 
   const id = t._id?.toString?.() || t._id;
   const isLiked = viewerPersonaId ? (t.likes || []).some((p) => p.toString() === viewerPersonaId.toString()) : false;
-  const isOwn = viewerPersonaId
-    ? (author?._id?.toString?.() || author?._id) === viewerPersonaId.toString()
-    : false;
 
   const base = {
     id,
@@ -112,23 +147,19 @@ const formatThreadItem = (t, viewerPersonaId, ownedPersonaIds, repostedTargetIdS
 
     isLiked,
     isReposted: repostedTargetIdSet ? repostedTargetIdSet.has(id.toString()) : false,
-    isOwn,
+    isOwner: ownedPersonaIds?.includes(author?._id?.toString?.()),
 
-    author: author
-      ? {
-          id: author._id,
-          handle: author.handle,
-          username: author.handle,
-          displayName: author.displayName || author.handle,
-          profilePic: author.profilePic || '',
-          type: author.type,
-        }
-      : null,
+    author: formatAuthorPersonaForThread(author),
   };
 
-  // include repost target (already populated)
-  if (t.type === 'repost' || t.type === 'quote') {
-    base.repostOf = t.repostOf || null;
+  // ✅ IMPORTANT: match ThreadCard’s expected property names
+  if (base.type === 'repost') {
+    base.repostedBy = base.author; // used by ThreadCard banner (optional; it also falls back to thread.author)
+    base.repostedThread = formatEmbeddedThread(t.repostOf);
+  }
+
+  if (base.type === 'quote') {
+    base.quotedThread = formatEmbeddedThread(t.repostOf);
   }
 
   return base;
@@ -456,16 +487,17 @@ exports.getPersonaThreadsByHandle = async (req, res) => {
     const total = await Thread.countDocuments(query);
 
     const docs = await Thread.find(query)
-      .populate('authorPersona', 'handle displayName profilePic type')
+      // ✅ include rollNumber/department/batch so ThreadCard can display for public personas
+      .populate('authorPersona', 'handle displayName profilePic type rollNumber department batch')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'authorPersona', select: 'handle displayName profilePic type' },
+          { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'authorPersona', select: 'handle displayName profilePic type' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           },
         ],
       })
@@ -549,16 +581,16 @@ exports.getPersonaLikedThreadsByHandle = async (req, res) => {
     const total = await Thread.countDocuments(query);
 
     const docs = await Thread.find(query)
-      .populate('authorPersona', 'handle displayName profilePic type')
+      .populate('authorPersona', 'handle displayName profilePic type rollNumber department batch')
       .populate({
         path: 'repostOf',
         match: { isDeleted: false },
         populate: [
-          { path: 'authorPersona', select: 'handle displayName profilePic type' },
+          { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           {
             path: 'repostOf',
             match: { isDeleted: false },
-            populate: { path: 'authorPersona', select: 'handle displayName profilePic type' },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           },
         ],
       })

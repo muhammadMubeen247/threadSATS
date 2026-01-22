@@ -68,10 +68,10 @@ const getBlockedPersonaIdSetForViewer = async (viewerPersonaId) => {
 };
 
 // POST /api/threads/:threadId/comments
-const createComment = async (req, res) => {
+exports.createComment = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { content } = req.body; // ignore old isAnonymous field if client still sends it
+    const { content } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
@@ -88,20 +88,25 @@ const createComment = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
-    // ✅ block enforcement: cannot interact if thread author is blocked / has blocked viewer
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text) return res.status(400).json({ success: false, message: 'Comment content is required' });
+
     const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
     if (blockedSet.has(thread.authorPersona.toString())) {
       return res.status(403).json({ success: false, message: 'Cannot interact with this content' });
     }
 
+    // ✅ top-level comment (matches your schema usage elsewhere)
     const comment = await Comment.create({
-      content,
-      authorPersona: ctx.activePersonaId,
       threadId,
+      authorPersona: ctx.activePersonaId,
+      content: text,
+      parentCommentId: null,
       depth: 0,
     });
 
-    await Thread.updateOne({ _id: threadId }, { $inc: { commentCount: 1 } });
+    // ✅ counts should include replies too (this is for top-level)
+    await Thread.findByIdAndUpdate(threadId, { $inc: { commentCount: 1 } });
 
     const populatedComment = await Comment.findById(comment._id).populate(
       'authorPersona',
@@ -120,7 +125,7 @@ const createComment = async (req, res) => {
 };
 
 // POST /api/comments/:commentId/reply
-const replyToComment = async (req, res) => {
+exports.replyToComment = async (req, res) => {
   try {
     const { commentId } = req.params;
     const { content } = req.body;
@@ -143,14 +148,11 @@ const replyToComment = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
-    // ✅ block enforcement
-    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
-    if (blockedSet.has(thread.authorPersona.toString())) {
-      return res.status(403).json({ success: false, message: 'Cannot interact with this content' });
-    }
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text) return res.status(400).json({ success: false, message: 'Reply content is required' });
 
     const reply = await Comment.create({
-      content,
+      content: text,
       authorPersona: ctx.activePersonaId,
       threadId: parentComment.threadId,
       parentCommentId: commentId,
@@ -158,6 +160,9 @@ const replyToComment = async (req, res) => {
     });
 
     await Comment.updateOne({ _id: commentId }, { $inc: { replyCount: 1 } });
+
+    // ✅ THIS is what you were missing:
+    await Thread.findByIdAndUpdate(parentComment.threadId, { $inc: { commentCount: 1 } });
 
     const populatedReply = await Comment.findById(reply._id).populate(
       'authorPersona',
@@ -176,7 +181,7 @@ const replyToComment = async (req, res) => {
 };
 
 // GET /api/threads/:threadId/comments
-const getThreadComments = async (req, res) => {
+exports.getThreadComments = async (req, res) => {
   try {
     const { threadId } = req.params;
     const page = parseInt(req.query.page) || 1;
@@ -255,7 +260,7 @@ const getThreadComments = async (req, res) => {
 };
 
 // GET /api/comments/:commentId/replies
-const getCommentReplies = async (req, res) => {
+exports.getCommentReplies = async (req, res) => {
   try {
     const { commentId } = req.params;
     const page = parseInt(req.query.page) || 1;
@@ -336,7 +341,7 @@ const getCommentReplies = async (req, res) => {
 };
 
 // GET /api/comments/:commentId
-const getCommentById = async (req, res) => {
+exports.getCommentById = async (req, res) => {
   try {
     const { commentId } = req.params;
 
@@ -367,7 +372,7 @@ const getCommentById = async (req, res) => {
 };
 
 // DELETE /api/comments/:commentId
-const deleteComment = async (req, res) => {
+exports.deleteComment = async (req, res) => {
   try {
     const { commentId } = req.params;
 
@@ -397,7 +402,7 @@ const deleteComment = async (req, res) => {
 };
 
 // PUT /api/comments/:commentId/like
-const toggleCommentLike = async (req, res) => {
+exports.toggleCommentLike = async (req, res) => {
   try {
     const { commentId } = req.params;
 
@@ -446,14 +451,4 @@ const toggleCommentLike = async (req, res) => {
     console.error('Toggle comment like error:', error);
     return res.status(500).json({ success: false, message: 'Server error while toggling like', error: error.message });
   }
-};
-
-module.exports = {
-  createComment,
-  replyToComment,
-  getThreadComments,
-  getCommentReplies,
-  getCommentById,
-  deleteComment,
-  toggleCommentLike,
 };

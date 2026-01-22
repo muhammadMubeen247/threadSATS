@@ -64,7 +64,7 @@ export default function PersonaThreadsTab({ handle }) {
       endMessage={<p className="text-center text-muted-foreground p-4">No more threads</p>}
     >
       {threads.map((thread) => {
-        const key = thread?.type === 'repost' ? thread?.repost?.id : thread?.id || thread?._id;
+        const key = thread?.id || thread?._id;
 
         return (
           <ThreadCard
@@ -73,7 +73,7 @@ export default function PersonaThreadsTab({ handle }) {
             onUpdate={(updateKey, patch) => {
               setThreads((prev) =>
                 prev.map((t) => {
-                  const tKey = t?.type === 'repost' ? t?.repost?.id : t?.id || t?._id;
+                  const tKey = t?.id || t?._id;
                   if (tKey !== updateKey) return t;
                   return { ...t, ...patch };
                 })

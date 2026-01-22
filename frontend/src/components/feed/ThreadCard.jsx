@@ -147,13 +147,35 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
     );
   };
 
-  const renderRepostedPreview = () => {
-    if (thread?.type !== 'repost' || !thread?.repostedThread) return null;
+  // ✅ Repost fallbacks (supports older API shapes)
+  const reposterPersona =
+    thread?.repostedBy ||
+    thread?.reposter ||
+    (thread?.type === 'repost' ? thread?.author : null);
 
-    const qt = thread.repostedThread;
+  const repostedThread =
+    thread?.repostedThread ||
+    thread?.repost?.originalThread ||
+    thread?.repost?.thread ||
+    thread?.repost ||
+    thread?.originalThread ||
+    null;
+
+  const renderRepostedPreview = () => {
+    if (thread?.type !== 'repost') return null;
+
+    // ✅ handle missing embedded thread (prevents “blank repost”)
+    if (!repostedThread || typeof repostedThread !== 'object') {
+      return (
+        <div className="mt-3 rounded-xl border bg-background/50 p-3 text-sm text-muted-foreground">
+          Reposted a thread
+        </div>
+      );
+    }
+
+    const qt = repostedThread;
     const originalId = qt?.id || qt?._id;
 
-    // ✅ persona handle (works for public + anon)
     const originalAuthorHandle = qt?.author?.username || qt?.author?.handle;
     const originalAuthorLink = originalAuthorHandle ? `/@${originalAuthorHandle}` : null;
 
@@ -332,16 +354,16 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         }}
       >
         {/* Repost banner */}
-        {thread?.type === 'repost' && thread?.repostedBy?.username ? (
+        {thread?.type === 'repost' && (reposterPersona?.username || reposterPersona?.handle) ? (
           <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
             <Repeat2 className="h-4 w-4" />
             <span>Reposted by</span>
             <Link
-              to={`/@${thread.repostedBy.username}`}
+              to={`/@${reposterPersona.username || reposterPersona.handle}`}
               onClick={(e) => e.stopPropagation()}
               className="hover:underline"
             >
-              @{thread.repostedBy.username}
+              @{reposterPersona.username || reposterPersona.handle}
             </Link>
           </div>
         ) : null}
@@ -517,12 +539,20 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="start">
-                  <DropdownMenuItem
+                  {!isReposted && (
+                    <DropdownMenuItem
+                      onClick={(e) => handleRepost(e)}
+                      className="cursor-pointer"
+                    >
+                      Repost
+                    </DropdownMenuItem>
+                  )}
+                  {/* <DropdownMenuItem
                     onClick={(e) => handleRepost(e)}
                     className="cursor-pointer"
                   >
                     Repost
-                  </DropdownMenuItem>
+                  </DropdownMenuItem> */}
 
                   <DropdownMenuItem
                     onClick={(e) => {
