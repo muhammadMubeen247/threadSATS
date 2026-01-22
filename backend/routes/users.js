@@ -163,13 +163,13 @@ router.get('/search', protect, searchValidation, validate, searchUsers);
 // ✅ /me routes
 router.get('/me/personas', protect, getMyPersonas);
 router.put('/me/mode', protect, modeValidation, validate, setMyMode);
-router.get('/me/profile', protect, getMyProfile);
-router.get('/me/activity', protect, getMyActivity);
+// router.get('/me/profile', protect, getMyProfile);
+// router.get('/me/activity', protect, getMyActivity);
 
 // ✅ anon setup + optional media
 router.put('/me/personas/anon/setup', protect, anonSetupValidation, validate, setupMyAnonPersona);
-router.put('/me/personas/anon/profile-pic', protect, uploadSingle, handleUploadError, updateMyAnonPersonaProfilePic);
-router.put('/me/personas/anon/cover-photo', protect, uploadSingle, handleUploadError, updateMyAnonPersonaCoverPhoto);
+// router.put('/me/personas/anon/profile-pic', protect, uploadSingle, handleUploadError, updateMyAnonPersonaProfilePic);
+// router.put('/me/personas/anon/cover-photo', protect, uploadSingle, handleUploadError, updateMyAnonPersonaCoverPhoto);
 
 // ✅ user media
 router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateProfilePic);
