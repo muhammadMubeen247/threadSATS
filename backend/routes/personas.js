@@ -15,14 +15,16 @@ const {
   getPersonaLikedThreadsByHandle,
   getPersonaRepliesByHandle,
 
-  // ✅ add "me" editors
   updateMyActivePersonaHandle,
   updateMyActivePersonaBio,
   updateMyActivePersonaProfilePic,
   updateMyActivePersonaCoverPhoto,
 
-  // ✅ add search
   searchPersonas,
+
+  // ✅ add these
+  getPersonaFollowersByHandle,
+  getPersonaFollowingByHandle,
 } = require('../controllers/controllers.persona');
 
 // Optional auth middleware (same idea as in threads.js)
@@ -118,6 +120,10 @@ router.get('/:handle/profile', handleValidation, validate, optionalAuth, getPers
 router.get('/:handle/threads', handleValidation, validate, optionalAuth, getPersonaThreadsByHandle);
 router.get('/:handle/likes', handleValidation, validate, optionalAuth, getPersonaLikedThreadsByHandle);
 router.get('/:handle/replies', handleValidation, validate, optionalAuth, getPersonaRepliesByHandle);
+
+// ✅ followers/following lists (public/optional-auth)
+router.get('/:handle/followers', handleValidation, validate, optionalAuth, getPersonaFollowersByHandle);
+router.get('/:handle/following', handleValidation, validate, optionalAuth, getPersonaFollowingByHandle);
 
 // protected interactions
 router.post('/:handle/follow', handleValidation, validate, protect, followPersonaByHandle);

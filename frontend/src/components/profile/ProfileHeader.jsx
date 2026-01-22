@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { useLocation, useNavigate } from 'react-router-dom';
 import EditProfileModal from '@/components/profile/EditProfileModal'; // ✅ add
+import PersonaConnectionsModal from '@/components/profile/PersonaConnectionsModal'; // ✅ add
 
 export default function ProfileHeader(props) {
   const {
@@ -40,6 +41,10 @@ export default function ProfileHeader(props) {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
   const [isEditOpen, setIsEditOpen] = useState(false); // ✅ add (since you render the modal)
+
+  // ✅ connections modal state
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [connectionsMode, setConnectionsMode] = useState('followers'); // 'followers' | 'following'
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -149,6 +154,16 @@ export default function ProfileHeader(props) {
 
   // Ensure the component returns JSX (even a minimal placeholder)
   if (!profile) return null;
+
+  const openFollowers = () => {
+    setConnectionsMode('followers');
+    setConnectionsOpen(true);
+  };
+
+  const openFollowing = () => {
+    setConnectionsMode('following');
+    setConnectionsOpen(true);
+  };
 
   return (
     <>
@@ -296,14 +311,16 @@ export default function ProfileHeader(props) {
               {profile?.bio && <p className="text-sm">{profile.bio}</p>}
 
               <div className="flex gap-6 pt-2">
-                <button className="hover:underline" type="button">
+                <button className="hover:underline" type="button" onClick={openFollowers}>
                   <span className="font-bold">{followersCount}</span>
                   <span className="text-muted-foreground ml-1">Followers</span>
                 </button>
-                <button className="hover:underline" type="button">
+
+                <button className="hover:underline" type="button" onClick={openFollowing}>
                   <span className="font-bold">{profile?.followingCount}</span>
                   <span className="text-muted-foreground ml-1">Following</span>
                 </button>
+
                 <div>
                   <span className="font-bold">{profile?.threadsCount || 0}</span>
                   <span className="text-muted-foreground ml-1">Threads</span>
@@ -342,6 +359,14 @@ export default function ProfileHeader(props) {
         onClose={() => setIsEditOpen(false)}
         profile={profile}
         onUpdated={handleProfileUpdated}
+      />
+
+      {/* ✅ followers/following modal */}
+      <PersonaConnectionsModal
+        open={connectionsOpen}
+        onOpenChange={setConnectionsOpen}
+        handle={profile?.username} // username == persona handle in your UI
+        mode={connectionsMode}
       />
     </>
   );

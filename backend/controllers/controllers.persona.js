@@ -192,6 +192,25 @@ const uploadBufferToCloudinary = async ({ buffer, folder, publicId }) => {
   });
 };
 
+const formatPersonaListItem = (p, viewerFollowingSet) => {
+  const id = p?._id?.toString?.() || p?._id;
+  const isFollowing = viewerFollowingSet ? viewerFollowingSet.has(id.toString()) : false;
+
+  return {
+    id,
+    type: p.type,
+    handle: p.handle,
+    username: p.handle, // frontend compatibility
+    displayName: p.displayName || p.handle,
+    profilePic: p.profilePic || '',
+
+    // ✅ show rollNumber only for public personas
+    rollNumber: p.type === 'public' ? p.rollNumber || '' : '',
+
+    isFollowing,
+  };
+};
+
 // GET /api/personas/:handle/profile  (optionalAuth)
 exports.getPersonaProfileByHandle = async (req, res) => {
   try {
@@ -953,6 +972,140 @@ exports.searchPersonas = async (req, res) => {
     });
   } catch (error) {
     console.error('searchPersonas error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ GET /api/personas/:handle/followers (optionalAuth)
+exports.getPersonaFollowersByHandle = async (req, res) => {
+  try {
+    const handle = normalizeHandle(req.params.handle);
+    if (!handle) return res.status(400).json({ success: false, message: 'Handle is required' });
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
+    const target = await Persona.findOne({ handle }).select('_id followers');
+    if (!target) return res.status(404).json({ success: false, message: 'Profile not found' });
+
+    // viewer context (optional)
+    let viewerPersonaId = null;
+    let blockedSet = new Set();
+    let viewerFollowingSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+
+      if (viewerPersonaId) {
+        blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+        // if target is blocked either-way, deny
+        if (blockedSet.has(target._id.toString())) {
+          return res.status(403).json({ success: false, message: 'Cannot view this content' });
+        }
+
+        const viewer = await Persona.findById(viewerPersonaId).select('following').lean();
+        for (const id of viewer?.following || []) viewerFollowingSet.add(id.toString());
+      }
+    }
+
+    const followerIds = target.followers || [];
+    const total = followerIds.length;
+
+    let docs = await Persona.find({ _id: { $in: followerIds } })
+      .select('_id handle displayName profilePic type rollNumber')
+      .sort({ handle: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // filter blocked (if logged in)
+    if (viewerPersonaId) {
+      docs = docs.filter((p) => !blockedSet.has(p._id.toString()));
+    }
+
+    const results = docs.map((p) => formatPersonaListItem(p, viewerPersonaId ? viewerFollowingSet : null));
+
+    return res.status(200).json({
+      success: true,
+      handle,
+      page,
+      pages: Math.ceil(total / limit),
+      count: results.length,
+      total,
+      results,
+    });
+  } catch (error) {
+    console.error('getPersonaFollowersByHandle error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ GET /api/personas/:handle/following (optionalAuth)
+exports.getPersonaFollowingByHandle = async (req, res) => {
+  try {
+    const handle = normalizeHandle(req.params.handle);
+    if (!handle) return res.status(400).json({ success: false, message: 'Handle is required' });
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
+    const target = await Persona.findOne({ handle }).select('_id following');
+    if (!target) return res.status(404).json({ success: false, message: 'Profile not found' });
+
+    // viewer context (optional)
+    let viewerPersonaId = null;
+    let blockedSet = new Set();
+    let viewerFollowingSet = new Set();
+
+    if (req.user) {
+      const ctx = await getViewerContext(req.user.id);
+      viewerPersonaId = ctx?.activePersonaId || null;
+
+      if (viewerPersonaId) {
+        blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+        // if target is blocked either-way, deny
+        if (blockedSet.has(target._id.toString())) {
+          return res.status(403).json({ success: false, message: 'Cannot view this content' });
+        }
+
+        const viewer = await Persona.findById(viewerPersonaId).select('following').lean();
+        for (const id of viewer?.following || []) viewerFollowingSet.add(id.toString());
+      }
+    }
+
+    const followingIds = target.following || [];
+    const total = followingIds.length;
+
+    let docs = await Persona.find({ _id: { $in: followingIds } })
+      .select('_id handle displayName profilePic type rollNumber')
+      .sort({ handle: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // filter blocked (if logged in)
+    if (viewerPersonaId) {
+      docs = docs.filter((p) => !blockedSet.has(p._id.toString()));
+    }
+
+    const results = docs.map((p) => formatPersonaListItem(p, viewerPersonaId ? viewerFollowingSet : null));
+
+    return res.status(200).json({
+      success: true,
+      handle,
+      page,
+      pages: Math.ceil(total / limit),
+      count: results.length,
+      total,
+      results,
+    });
+  } catch (error) {
+    console.error('getPersonaFollowingByHandle error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
