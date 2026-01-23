@@ -3,6 +3,8 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
+const http = require('http');
+const { initSocket } = require('./socket');
 
 dotenv.config();
 
@@ -50,8 +52,12 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
 
-app.listen(PORT, () => {
+initSocket(server);
+
+const PORT = process.env.PORT;
+
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
 });
