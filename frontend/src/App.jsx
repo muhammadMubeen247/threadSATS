@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Home from './pages/Home';
 import ProfilePage from './pages/ProfilePage';
 import ThreadDetail from './pages/ThreadDetail';
+import Messages from './pages/Messages';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import { useAuthStore } from '@/store/authStore';
@@ -62,6 +63,22 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <ThreadDetail />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="messages"
+        element={
+          <RequireAuth>
+            <Messages />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="messages/:conversationId"
+        element={
+          <RequireAuth>
+            <Messages />
           </RequireAuth>
         }
       />

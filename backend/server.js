@@ -27,6 +27,7 @@ app.use('/api/comments', require('./routes/comments'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/personas', require('./routes/personas'));
+app.use('/api/dm', require('./routes/dm'));
 
 app.get('/health', (req, res) => {
   res.status(200).json({

@@ -1,9 +1,14 @@
 const { Server } = require('socket.io');
 const socketAuth = require('./auth');
 
+const Conversation = require('../models/Conversation');
+const { getViewerContext } = require('../utils/personaContext');
+
 let io;
 
-const initSocket = (server) => {
+const roomName = (conversationId) => `dm:${conversationId}`;
+
+function initSocket(server) {
   io = new Server(server, {
     cors: {
       origin: process.env.CLIENT_URL,
@@ -11,25 +16,42 @@ const initSocket = (server) => {
     },
   });
 
-  // Auth middleware
   io.use(socketAuth);
 
   io.on('connection', (socket) => {
-    console.log('🔌 Socket connected:', socket.user._id.toString());
+    // client should emit: socket.emit('dm:join', { conversationId })
+    socket.on('dm:join', async ({ conversationId }) => {
+      try {
+        if (!conversationId) return;
 
-    socket.on('disconnect', () => {
-      console.log('❌ Socket disconnected:', socket.user._id.toString());
+        const ctx = await getViewerContext(socket.user.id);
+        if (!ctx?.activePersonaId) return;
+
+        const convo = await Conversation.findById(conversationId).select('participants').lean();
+        if (!convo) return;
+
+        const ok = (convo.participants || []).some(
+          (p) => p.toString() === ctx.activePersonaId.toString()
+        );
+        if (!ok) return;
+
+        socket.join(roomName(conversationId));
+      } catch (e) {
+        // ignore join errors to avoid leaking info
+      }
+    });
+
+    socket.on('dm:leave', ({ conversationId }) => {
+      if (!conversationId) return;
+      socket.leave(roomName(conversationId));
     });
   });
 
   return io;
-};
+}
 
-const getIO = () => {
-  if (!io) {
-    throw new Error('Socket.io not initialized');
-  }
+function getIO() {
   return io;
-};
+}
 
 module.exports = { initSocket, getIO };

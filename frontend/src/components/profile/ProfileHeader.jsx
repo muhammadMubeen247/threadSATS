@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, MapPin, InfoIcon } from 'lucide-react';
+import { Camera, MapPin, InfoIcon, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import api from '@/api/axios';
@@ -15,6 +15,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import EditProfileModal from '@/components/profile/EditProfileModal'; // ✅ add
 import PersonaConnectionsModal from '@/components/profile/PersonaConnectionsModal'; // ✅ add
+import { useAuthStore } from '@/store/authStore'; // ✅ add
 
 export default function ProfileHeader(props) {
   const { profile, onFollowToggle, onProfilePicUpdated } = props;
@@ -23,6 +24,10 @@ export default function ProfileHeader(props) {
   const [followersCount, setFollowersCount] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [followError, setFollowError] = useState('');
+
+  // ✅ DM state
+  const [isDmBusy, setIsDmBusy] = useState(false);
+  const [dmError, setDmError] = useState('');
 
   const [isUploadingPic, setIsUploadingPic] = useState(false);
   const [picError, setPicError] = useState('');
@@ -44,6 +49,9 @@ export default function ProfileHeader(props) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // ✅ active persona mode (public/anon)
+  const activeMode = useAuthStore((s) => s.activeMode);
+
   useEffect(() => {
     setIsFollowing(Boolean(profile?.isFollowing));
     setFollowersCount(Number(profile?.followersCount ?? 0));
@@ -51,6 +59,36 @@ export default function ProfileHeader(props) {
 
   // ✅ derive edit permissions from backend
   const isActivePersona = Boolean(profile?.isActivePersona);
+
+  // ✅ DM allowed only between same persona types
+  const activeType = activeMode === 'anon' ? 'anon' : 'public';
+  const canMessage =
+    !isActivePersona &&
+    Boolean(profile?.username) &&
+    Boolean(profile?.type) &&
+    profile.type === activeType;
+
+  const handleMessageClick = async () => {
+    if (!canMessage || isDmBusy) return;
+
+    setDmError('');
+    setIsDmBusy(true);
+    try {
+      const res = await api.post('/dm/conversations', {
+        targetHandle: profile.username, // username == persona handle in your UI
+      });
+
+      const id = res?.conversation?.id;
+      if (!id) throw new Error('Could not start conversation');
+
+      navigate(`/messages/${id}`);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.userMessage || e?.message || 'Failed to start chat';
+      setDmError(msg);
+    } finally {
+      setIsDmBusy(false);
+    }
+  };
 
   const openPicPicker = () => {
     // ✅ only active persona can edit its media
@@ -326,29 +364,52 @@ export default function ProfileHeader(props) {
                 </div>
               </div>
             </div>
-            <div className="mb-12">
+            <div className="mb-12 flex items-center gap-2">
               {isActivePersona ? (
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => setIsEditOpen(true)}
-                >
+                <Button variant="outline" type="button" onClick={() => setIsEditOpen(true)}>
                   Edit Profile
                 </Button>
               ) : (
-                <Button
-                  variant={isFollowing ? 'outline' : 'default'}
-                  onClick={handleFollowClick}
-                  disabled={isBusy}
-                  type="button"
-                >
-                  {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
-                </Button>
+                <>
+                  <Button
+                    variant={isFollowing ? 'outline' : 'default'}
+                    onClick={handleFollowClick}
+                    disabled={isBusy}
+                    type="button"
+                  >
+                    {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
+                  </Button>
+
+                  {/* ✅ Message button to the right of Follow/Unfollow */}
+                  {canMessage ? (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={handleMessageClick}
+                        disabled={isDmBusy}
+                        type="button"
+                        className="  h-10 w-10 rounded-full 
+  flex items-center justify-center
+  bg-primary text-primary-foreground
+  hover:bg-primary/90
+  shadow-sm
+  transition"
+                        title="Send message"
+                      >
+                        {isDmBusy ? (
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                        ) : (
+                          <MessageCircle className="h-5 w-5" />
+                        )}
+                      </Button>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
 
           {followError ? <p className="mt-2 text-sm text-red-500">{followError}</p> : null}
+          {dmError ? <p className="mt-2 text-sm text-red-500">{dmError}</p> : null}
         </div>
       </div>
 
