@@ -4,7 +4,8 @@ const Message = require('../models/Message');
 const Persona = require('../models/Persona');
 
 const { getViewerContext } = require('../utils/personaContext');
-const { getIO } = require('../socket'); // ✅ add
+// ✅ change: also import isPersonaOnline
+const { getIO, isPersonaOnline } = require('../socket');
 
 const roomName = (conversationId) => `dm:${conversationId}`;
 
@@ -197,16 +198,21 @@ exports.sendMessage = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot message this persona' });
     }
 
+    // ✅ NEW: mark delivered immediately if recipient is online (socket connected)
+    const deliveredTo = [ctx.activePersonaId];
+    if (isPersonaOnline(otherId)) deliveredTo.push(otherId);
+
     const msg = await Message.create({
       conversationId: id,
       senderPersonaId: ctx.activePersonaId,
       text,
+      deliveredTo,
       seenBy: [ctx.activePersonaId],
     });
 
     await Conversation.findByIdAndUpdate(id, { lastMessage: msg._id }, { new: false });
 
-    // ✅ emit realtime event
+    // ✅ emit realtime event (include receipts)
     try {
       getIO()?.to(roomName(id)).emit('dm:new_message', {
         conversationId: id,
@@ -215,6 +221,8 @@ exports.sendMessage = async (req, res) => {
           conversationId: msg.conversationId,
           senderPersonaId: msg.senderPersonaId,
           text: msg.text,
+          deliveredTo: msg.deliveredTo || [],
+          seenBy: msg.seenBy || [],
           createdAt: msg.createdAt,
         },
       });
@@ -225,6 +233,172 @@ exports.sendMessage = async (req, res) => {
     return res.status(201).json({ success: true, message: msg });
   } catch (e) {
     console.error('sendMessage error:', e);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// ✅ GET /dm/search/contacts?q=...
+// Searches ONLY among personas you already have a conversation with.
+exports.searchContacts = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(200).json({ success: true, results: [] });
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx?.activePersonaId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const rx = new RegExp(escapeRegex(q), 'i');
+
+    const conversations = await Conversation.find({ participants: ctx.activePersonaId })
+      .populate('participants', 'handle displayName profilePic type')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const me = ctx.activePersonaId.toString();
+    const seen = new Set();
+    const results = [];
+
+    for (const c of conversations) {
+      const other = (c.participants || []).find((p) => p?._id?.toString() !== me);
+      if (!other) continue;
+
+      const otherId = other._id.toString();
+      if (seen.has(otherId)) continue;
+
+      const handle = other.handle || '';
+      const displayName = other.displayName || '';
+
+      if (rx.test(handle) || rx.test(displayName)) {
+        seen.add(otherId);
+        results.push({
+          conversationId: c._id,
+          persona: {
+            id: other._id,
+            handle: other.handle,
+            displayName: other.displayName || other.handle,
+            profilePic: other.profilePic || '',
+            type: other.type,
+          },
+          updatedAt: c.updatedAt,
+        });
+        if (results.length >= limit) break;
+      }
+    }
+
+    return res.status(200).json({ success: true, results });
+  } catch (e) {
+    console.error('searchContacts error:', e);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ✅ GET /dm/search/messages?q=...&conversationId?=...&limit=...&before=...
+// If conversationId is provided -> searches within that chat
+// else -> searches across all chats the active persona participates in.
+exports.searchMessages = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(200).json({ success: true, results: [], nextBefore: null });
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx?.activePersonaId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 30, 1), 100);
+
+    const { conversationId } = req.query;
+    let conversationIds = [];
+
+    if (conversationId) {
+      if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+        return res.status(400).json({ success: false, message: 'Invalid conversationId' });
+      }
+
+      const convo = await Conversation.findById(conversationId).select('participants').lean();
+      if (!convo) return res.status(404).json({ success: false, message: 'Conversation not found' });
+
+      const isParticipant = (convo.participants || []).some(
+        (p) => p.toString() === ctx.activePersonaId.toString()
+      );
+      if (!isParticipant) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+      conversationIds = [conversationId];
+    } else {
+      const convos = await Conversation.find({ participants: ctx.activePersonaId }).select('_id').lean();
+      conversationIds = convos.map((c) => c._id);
+    }
+
+    if (!conversationIds.length) {
+      return res.status(200).json({ success: true, results: [], nextBefore: null });
+    }
+
+    const query = {
+      conversationId: { $in: conversationIds },
+      $text: { $search: q },
+    };
+
+    if (req.query.before && mongoose.Types.ObjectId.isValid(req.query.before)) {
+      query._id = { $lt: req.query.before };
+    }
+
+    const msgs = await Message.find(
+      query,
+      {
+        _id: 1,
+        conversationId: 1,
+        senderPersonaId: 1,
+        text: 1,
+        createdAt: 1,
+        score: { $meta: 'textScore' },
+      }
+    )
+      .sort({ score: { $meta: 'textScore' }, _id: -1 })
+      .limit(limit)
+      .lean();
+
+    // Optional: include "other" for each conversation in results (minimal extra query)
+    const convoMap = new Map();
+    if (!conversationId) {
+      const convos = await Conversation.find({ _id: { $in: [...new Set(msgs.map((m) => m.conversationId))] } })
+        .populate('participants', 'handle displayName profilePic type')
+        .lean();
+
+      const me = ctx.activePersonaId.toString();
+      for (const c of convos) {
+        const other = (c.participants || []).find((p) => p?._id?.toString() !== me) || null;
+        convoMap.set(String(c._id), other);
+      }
+    }
+
+    const results = msgs.map((m) => {
+      const other = convoMap.get(String(m.conversationId));
+      return {
+        id: m._id,
+        conversationId: m.conversationId,
+        senderPersonaId: m.senderPersonaId,
+        text: m.text,
+        createdAt: m.createdAt,
+        other: other
+          ? {
+              id: other._id,
+              handle: other.handle,
+              displayName: other.displayName || other.handle,
+              profilePic: other.profilePic || '',
+              type: other.type,
+            }
+          : undefined,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      results: results.reverse(),
+      nextBefore: msgs.length ? msgs[msgs.length - 1]._id : null,
+    });
+  } catch (e) {
+    console.error('searchMessages error:', e);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };

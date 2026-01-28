@@ -16,20 +16,43 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
-// ✅ add
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+
+// ✅ add
+import { connectSocket, disconnectSocket } from '@/socket/client';
 
 export default function Navbar() {
   const navigate = useNavigate();
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
 
+  // ✅ keep socket connected while logged in
+  useEffect(() => {
+    if (!user) {
+      disconnectSocket();
+      return;
+    }
+
+    connectSocket();
+
+    return () => {
+      disconnectSocket();
+    };
+  }, [user]);
+
+  // ✅ reconnect on mode switch so backend presence reflects active persona
+  useEffect(() => {
+    if (!user) return;
+    disconnectSocket();
+    connectSocket();
+  }, [activeMode, user]);
+
   // --- Search state ---
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]); // ✅ personas: backend returns { results: [...] }
+  const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -90,6 +113,9 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     try {
+      // ✅ ensure socket is closed on logout
+      disconnectSocket();
+
       await api.post('/auth/logout');
       logout();
       navigate('/login');
