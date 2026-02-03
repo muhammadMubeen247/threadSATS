@@ -21,7 +21,6 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 
-// ✅ add
 import { connectSocket, disconnectSocket } from '@/socket/client';
 
 export default function Navbar() {
@@ -29,7 +28,9 @@ export default function Navbar() {
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
 
-  // ✅ keep socket connected while logged in
+  // ✅ single socket lifecycle effect:
+  // - connect while logged in
+  // - reconnect when activeMode changes (presence/persona)
   useEffect(() => {
     if (!user) {
       disconnectSocket();
@@ -41,14 +42,7 @@ export default function Navbar() {
     return () => {
       disconnectSocket();
     };
-  }, [user]);
-
-  // ✅ reconnect on mode switch so backend presence reflects active persona
-  useEffect(() => {
-    if (!user) return;
-    disconnectSocket();
-    connectSocket();
-  }, [activeMode, user]);
+  }, [user, activeMode]);
 
   // --- Search state ---
   const [query, setQuery] = useState('');
