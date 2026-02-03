@@ -204,6 +204,11 @@ function MessageBubble({ mine, text, time, status }) {
 }
 
 function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrReceived }) {
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    socketRef.current = connectSocket();
+  }, []);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -227,6 +232,8 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   const inputRef = useRef(null);
 
   const bottomRef = useRef(null);
+
+
 
   // ✅ insert emoji at cursor
   const insertEmoji = useCallback((emoji) => {
@@ -409,8 +416,9 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   const ackDelivered = useCallback(
     (messageId) => {
       if (!conversationId || !messageId) return;
-      const s = connectSocket();
-      s.emit('dm:delivered', { conversationId, messageId });
+      // const s = connectSocket();
+      // s.emit('dm:delivered', { conversationId, messageId });
+      socketRef.current?.emit('dm:delivered', { conversationId, messageId });
     },
     [conversationId]
   );
@@ -421,17 +429,19 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
       if (!conversationId || !upToMessageId) return;
       if (document.visibilityState !== 'visible') return;
 
-      const s = connectSocket();
-      s.emit('dm:seen', { conversationId, upToMessageId });
+      // const s = connectSocket();
+      // s.emit('dm:seen', { conversationId, upToMessageId });
+      socketRef.current?.emit('dm:seen', { conversationId, upToMessageId });
     },
     [conversationId]
   );
 
   // ✅ listen to server status updates and apply to local message objects
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || !socketRef.current) return;
 
-    const s = connectSocket();
+    // const s = connectSocket();
+    const s = socketRef.current;
 
     const onStatus = (payload) => {
       if (payload?.conversationId !== conversationId) return;
@@ -525,12 +535,16 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [conversationId, messages, ackSeenUpTo]);
 
-  // join room + realtime updates (UPDATED: ack delivered/seen for incoming)
+  // join room + realtime updates (UPDATED: re-join after reconnect)
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || !socketRef.current) return;
 
-    const s = connectSocket();
-    s.emit('dm:join', { conversationId });
+    const s = socketRef.current;
+
+    const join = () => s.emit('dm:join', { conversationId });
+
+    join();                 // join now
+    s.on('connect', join);  // ✅ re-join on reconnect
 
     const onNew = (payload) => {
       if (payload?.conversationId !== conversationId) return;
@@ -543,14 +557,16 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
         return [...prev, msg];
       });
 
-      onSentOrReceived?.(conversationId, msg);
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      });
 
       // ✅ receiver acks
       if (String(msg.senderPersonaId) !== String(myPersonaId)) {
         const mid = msg._id || msg.id;
         if (mid) {
           ackDelivered(mid);
-          ackSeenUpTo(mid); // chat is open -> seen
+          ackSeenUpTo(mid);
         }
       }
     };
@@ -559,11 +575,12 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
 
     return () => {
       s.off('dm:new_message', onNew);
+      s.off('connect', join);
       s.emit('dm:leave', { conversationId });
     };
-  }, [conversationId, onSentOrReceived, myPersonaId, ackDelivered, ackSeenUpTo]);
+  }, [conversationId, myPersonaId, ackDelivered, ackSeenUpTo]);
 
-  // ✅ ADD: send message handler (used by Enter + Send button)
+  // ✅ ADD/UPDATE: send message handler (used by Enter + Send button)
   const send = useCallback(async () => {
     const body = text.trim();
     if (!conversationId) return;
@@ -573,19 +590,26 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
     setSending(true);
     try {
       const res = await api.post(`/dm/conversations/${conversationId}/messages`, { text: body });
-      const msg = res?.message; // backend returns { success, message }
+      const msg = res?.message;
 
       if (msg) {
-        setMessages((prev) => [...prev, msg]);
+        const msgId = String(msg._id || msg.id);
+
+        // ✅ show instantly (and avoid duplicates if socket also delivers it later)
+        setMessages((prev) => {
+          if (prev.some((m) => String(m._id || m.id) === msgId)) return prev;
+          return [...prev, msg];
+        });
+
         onSentOrReceived?.(conversationId, msg);
+
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        });
       }
 
       setText('');
       setEmojiOpen(false);
-
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      });
     } catch (e) {
       console.error('Send failed:', e);
     } finally {
@@ -852,7 +876,7 @@ export default function Messages() {
   );
 
   // update sidebar preview on send/receive
-  const bumpConversation = (id, msg) => {
+  const bumpConversation = useCallback((id, msg) => {
     setConversations((prev) => {
       const idx = prev.findIndex((c) => c.id === id);
       if (idx === -1) return prev;
@@ -869,7 +893,23 @@ export default function Messages() {
 
       return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
     });
-  };
+  }, []);
+
+  // ✅ global dm:new_message listener (updates sidebar without refresh)
+  useEffect(() => {
+    const s = connectSocket();
+
+    const onAnyNew = (payload) => {
+      const id = payload?.conversationId;
+      const msg = payload?.message;
+      if (!id || !msg) return;
+
+      bumpConversation(id, msg);
+    };
+
+    s.on('dm:new_message', onAnyNew);
+    return () => s.off('dm:new_message', onAnyNew);
+  }, [bumpConversation, activeMode]);
 
   return (
     <>

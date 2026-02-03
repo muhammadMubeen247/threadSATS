@@ -8,17 +8,25 @@ function getSocketUrl() {
 }
 
 export function connectSocket() {
-  if (socket?.connected) return socket;
+  const url = getSocketUrl();
 
-  socket = io(getSocketUrl(), {
-    withCredentials: true,
-    transports: ['websocket'],
-  });
+  if (!socket) {
+    socket = io(url, {
+      withCredentials: true,
+      transports: ['websocket', 'polling'], // ✅ allow fallback in dev
+      reconnection: true,
+      timeout: 10000,
+    });
 
-  return socket;
-}
+    // optional: debug once
+    socket.on('connect_error', (err) => {
+      console.warn('[socket] connect_error:', err?.message || err);
+    });
+  } else if (!socket.connected) {
+    // ✅ critical: if it exists but got disconnected, reconnect
+    socket.connect();
+  }
 
-export function getSocket() {
   return socket;
 }
 
@@ -26,4 +34,8 @@ export function disconnectSocket() {
   if (!socket) return;
   socket.disconnect();
   socket = null;
+}
+
+export function getSocket() {
+  return socket;
 }

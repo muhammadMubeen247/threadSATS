@@ -8,6 +8,7 @@ const { getViewerContext } = require('../utils/personaContext');
 const { getIO, isPersonaOnline } = require('../socket');
 
 const roomName = (conversationId) => `dm:${conversationId}`;
+const personaRoom = (personaId) => `persona:${personaId}`;
 
 const ensureSameType = (a, b) => a && b && a.type === b.type;
 
@@ -213,21 +214,27 @@ exports.sendMessage = async (req, res) => {
     await Conversation.findByIdAndUpdate(id, { lastMessage: msg._id }, { new: false });
 
     // ✅ emit realtime event (include receipts)
+    const payload = {
+      conversationId: id,
+      message: {
+        id: msg._id,
+        conversationId: msg.conversationId,
+        senderPersonaId: msg.senderPersonaId,
+        text: msg.text,
+        deliveredTo: msg.deliveredTo || [],
+        seenBy: msg.seenBy || [],
+        createdAt: msg.createdAt,
+      },
+    };
+
     try {
-      getIO()?.to(roomName(id)).emit('dm:new_message', {
-        conversationId: id,
-        message: {
-          id: msg._id,
-          conversationId: msg.conversationId,
-          senderPersonaId: msg.senderPersonaId,
-          text: msg.text,
-          deliveredTo: msg.deliveredTo || [],
-          seenBy: msg.seenBy || [],
-          createdAt: msg.createdAt,
-        },
-      });
+      const io = getIO();
+      // room for open chat
+      io?.to(roomName(id)).emit('dm:new_message', payload);
+      // ✅ always deliver to the receiver (even if they didn't open the chat)
+      io?.to(personaRoom(otherId)).emit('dm:new_message', payload);
     } catch {
-      // ignore socket failures
+      // ignore
     }
 
     return res.status(201).json({ success: true, message: msg });

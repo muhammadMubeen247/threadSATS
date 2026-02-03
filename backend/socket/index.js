@@ -49,6 +49,8 @@ async function assertParticipant(userId, conversationId) {
   return ok ? ctx.activePersonaId : null;
 }
 
+const personaRoom = (personaId) => `persona:${personaId}`;
+
 function initSocket(httpServer) {
   io = new Server(httpServer, {
     cors: {
@@ -60,7 +62,6 @@ function initSocket(httpServer) {
   io.use(socketAuth);
 
   io.on('connection', (socket) => {
-    // ✅ compute active persona on connect + track presence
     (async () => {
       try {
         const userId = socket.user?._id || socket.user?.id;
@@ -71,7 +72,12 @@ function initSocket(httpServer) {
         if (!pid) return;
 
         socket.data.activePersonaId = pid;
+
+        // ✅ presence
         addOnlinePersona(pid, socket.id);
+
+        // ✅ personal room (always-on)
+        socket.join(personaRoom(pid));
       } catch {
         // ignore
       }
