@@ -14,6 +14,7 @@ import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import ImageLightbox from './ImageLightbox';
 import QuoteRepostModal from './QuoteRepostModal';
+import MentionText from '@/components/common/MentionText';
 
 export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const navigate = useNavigate();
@@ -124,7 +125,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
               {/* Original content preview */}
               <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
-                {qt?.content}
+                <MentionText text={qt?.content} />
               </p>
 
               {/* Optional thumbnail (like the screenshot’s embedded card) */}
@@ -226,7 +227,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
               </div>
 
               <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
-                {qt?.content}
+                <MentionText text={qt?.content} />
               </p>
 
               {firstImageUrl ? (
@@ -455,7 +456,9 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
             {/* Thread Content (don't render if empty, e.g. simple reposts) */}
             {typeof thread.content === 'string' && thread.content.trim().length > 0 ? (
-              <p className="mt-2 text-sm whitespace-pre-wrap break-words">{thread.content}</p>
+              <p className="mt-2 text-sm whitespace-pre-wrap break-words">
+                <MentionText text={thread.content} />
+              </p>
             ) : null}
 
             {/* ✅ Embedded preview for quote repost */}

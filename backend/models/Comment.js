@@ -36,6 +36,8 @@ const commentSchema = new mongoose.Schema(
     depth: { type: Number, default: 0 },
 
     isDeleted: { type: Boolean, default: false },
+
+    mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
   },
   { timestamps: true }
 );

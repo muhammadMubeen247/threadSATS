@@ -26,6 +26,8 @@ import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 import QuoteRepostModal from '@/components/feed/QuoteRepostModal';
+import MentionTextarea from '@/components/common/MentionTextarea';
+import MentionText from '@/components/common/MentionText';
 
 export default function ThreadDetail() {
   const { threadId } = useParams();
@@ -404,7 +406,9 @@ export default function ThreadDetail() {
               </div>
 
               {item?.content ? (
-                <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">{item.content}</p>
+                <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                  <MentionText text={item.content} />
+                </p>
               ) : null}
 
               {firstImage ? (
@@ -491,148 +495,149 @@ export default function ThreadDetail() {
                 )}
               </div>
 
-              <p className="text-sm leading-relaxed">{comment.content}</p>
-            </div>
+              <p className="text-sm leading-relaxed">
+                <MentionText text={comment.content} />
+              </p>
 
-            <div className="flex items-center gap-4 mt-2 ml-1">
-              <button
-                onClick={() => handleLikeComment(commentId)}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-500 transition-colors group"
-              >
-                <Heart className={`h-4 w-4 ${comment.isLiked ? 'fill-red-500 text-red-500' : ''} group-hover:scale-110 transition-transform`} />
-                <span>{comment.likesCount || 0}</span>
-              </button>
+              <div className="flex items-center gap-4 mt-2 ml-1">
+                <button
+                  onClick={() => handleLikeComment(commentId)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-500 transition-colors group"
+                >
+                  <Heart className={`h-4 w-4 ${comment.isLiked ? 'fill-red-500 text-red-500' : ''} group-hover:scale-110 transition-transform`} />
+                  <span>{comment.likesCount || 0}</span>
+                </button>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-auto p-0 text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-                onClick={() => {
-                  setReplyingTo({ commentId, parentCommentId: rootParentId });
-                  setReplyText('');
-                }}
-              >
-                <MessageCircle className="h-4 w-4" />
-                Reply
-              </Button>
-            </div>
-
-            {replyingTo?.commentId === commentId && (
-              <div className="mt-3 flex gap-2" dir="ltr">
-                <Avatar className="h-8 w-8 flex-shrink-0">
-                  <AvatarImage src={user?.profilePic} alt={user?.username} />
-                  <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
-                </Avatar>
-
-                <div className="flex-1 space-y-2">
-                  <Textarea
-                    // ✅ remove key to avoid any forced remount
-                    placeholder={`Reply to ${comment.isAnonymous ? 'Anonymous' : `@${comment.author?.username}`}...`}
-                    value={replyText}
-                    onChange={(e) => setReplyText(stripBidiControls(e.target.value))}
-                    dir="ltr"
-                    className="min-h-[60px] resize-none text-sm !text-left ![direction:ltr] ![unicode-bidi:isolate]"
-                    maxLength={500}
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setReplyingTo(null);
-                        setReplyText('');
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleReplySubmit(commentId, replyingTo.parentCommentId)}
-                      disabled={isSubmittingReply || !replyText.trim()}
-                    >
-                      {isSubmittingReply && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-                      Reply
-                    </Button>
-                  </div>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto p-0 text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                  onClick={() => {
+                    setReplyingTo({ commentId, parentCommentId: rootParentId });
+                    setReplyText('');
+                  }}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Reply
+                </Button>
               </div>
-            )}
 
-            {!isExpanded && previewReplies?.length > 0 && (
-              <div className="mt-2 space-y-2">
-                {previewReplies.filter(Boolean).map((reply) => (
-                  <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
-                ))}
-              </div>
-            )}
+              {replyingTo?.commentId === commentId && (
+                <div className="mt-3 flex gap-2" dir="ltr">
+                  <Avatar className="h-8 w-8 flex-shrink-0">
+                    <AvatarImage src={user?.profilePic} alt={user?.username} />
+                    <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
+                  </Avatar>
 
-            {isExpanded && hasLoadedReplies && (
-              <div className="mt-2 space-y-2">
-                {replies.filter(Boolean).map((reply) => (
-                  <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
-                ))}
-              </div>
-            )}
+                  <div className="flex-1 space-y-2">
+                    <MentionTextarea
+                      placeholder="Write a reply..."
+                      value={replyText}
+                      onValueChange={(v) => setReplyText(stripBidiControls(v))}
+                      maxLength={500}
+                      disabled={isSubmittingReply}
+                      className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
+                    />
 
-            <div className="mt-2 ml-1">
-              {totalReplies > 0 && (
-                <>
-                  {!isExpanded && hiddenRepliesCount > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto p-0 text-xs text-primary hover:underline"
-                      onClick={() => {
-                        if (!hasLoadedReplies) loadReplies(commentId);
-                        else toggleReplies(commentId);
-                      }}
-                      disabled={isLoadingReplies}
-                    >
-                      {isLoadingReplies ? (
-                        <>
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        `Show Replies (${hiddenRepliesCount})`
-                      )}
-                    </Button>
-                  )}
-
-                  {isExpanded && (
-                    <>
+                    <div className="flex justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-auto p-0 text-xs text-muted-foreground hover:text-primary"
-                        onClick={() => toggleReplies(commentId)}
+                        onClick={() => {
+                          setReplyingTo(null);
+                          setReplyText('');
+                        }}
                       >
-                        Hide Replies
+                        Cancel
                       </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleReplySubmit(commentId, replyingTo.parentCommentId)}
+                        disabled={isSubmittingReply || !replyText.trim()}
+                      >
+                        {isSubmittingReply && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+                        Reply
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                      {hasMoreReplies[commentId] && (
+              {!isExpanded && previewReplies?.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {previewReplies.filter(Boolean).map((reply) => (
+                    <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
+                  ))}
+                </div>
+              )}
+
+              {isExpanded && hasLoadedReplies && (
+                <div className="mt-2 space-y-2">
+                  {replies.filter(Boolean).map((reply) => (
+                    <div key={reply._id || reply.id}>{renderCommentItem(reply, depth + 1, rootParentId)}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-2 ml-1">
+                {totalReplies > 0 && (
+                  <>
+                    {!isExpanded && hiddenRepliesCount > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-primary hover:underline"
+                        onClick={() => {
+                          if (!hasLoadedReplies) loadReplies(commentId);
+                          else toggleReplies(commentId);
+                        }}
+                        disabled={isLoadingReplies}
+                      >
+                        {isLoadingReplies ? (
+                          <>
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          `Show Replies (${hiddenRepliesCount})`
+                        )}
+                      </Button>
+                    )}
+
+                    {isExpanded && (
+                      <>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-auto p-0 text-xs text-primary hover:underline ml-3"
-                          onClick={() => loadReplies(commentId)}
-                          disabled={isLoadingReplies}
+                          className="h-auto p-0 text-xs text-muted-foreground hover:text-primary"
+                          onClick={() => toggleReplies(commentId)}
                         >
-                          {isLoadingReplies ? (
-                            <>
-                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                              Loading...
-                            </>
-                          ) : (
-                            'Show More Replies'
-                          )}
+                          Hide Replies
                         </Button>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
+
+                        {hasMoreReplies[commentId] && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-0 text-xs text-primary hover:underline ml-3"
+                            onClick={() => loadReplies(commentId)}
+                            disabled={isLoadingReplies}
+                          >
+                            {isLoadingReplies ? (
+                              <>
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                Loading...
+                              </>
+                            ) : (
+                              'Show More Replies'
+                            )}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -753,7 +758,9 @@ export default function ThreadDetail() {
 
                 {/* Main content (hide if empty, e.g. simple repost) */}
                 {typeof thread.content === 'string' && thread.content.trim().length > 0 ? (
-                  <p className="mt-2 text-base whitespace-pre-wrap break-words">{thread.content}</p>
+                  <p className="mt-2 text-base">
+                    <MentionText text={thread.content} />
+                  </p>
                 ) : null}
 
                 {/* Embedded preview for quote/repost */}
@@ -844,13 +851,13 @@ export default function ThreadDetail() {
                   <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
-                  <Textarea
+                  <MentionTextarea
                     placeholder="Add a comment..."
                     value={commentText}
-                    onChange={(e) => setCommentText(stripBidiControls(e.target.value))}
-                    dir="ltr"
-                    className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
+                    onValueChange={(v) => setCommentText(stripBidiControls(v))}
                     maxLength={500}
+                    disabled={isSubmitting}
+                    className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                   />
                 </div>
               </div>

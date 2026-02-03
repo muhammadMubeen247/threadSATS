@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '@/api/axios';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import MentionTextarea from '@/components/common/MentionTextarea';
 import {
   Dialog,
   DialogContent,
@@ -46,7 +46,6 @@ export default function QuoteRepostModal({ open, onClose, threadId, onCreated })
   return (
     <Dialog open={open} onOpenChange={(v) => (!v ? onClose?.() : null)}>
       <DialogContent className="max-w-xl">
-        {/* ✅ Required for accessibility */}
         <DialogHeader>
           <DialogTitle className="sr-only">Quote repost</DialogTitle>
         </DialogHeader>
@@ -56,13 +55,14 @@ export default function QuoteRepostModal({ open, onClose, threadId, onCreated })
 
           {error ? <p className="text-sm text-red-500">{error}</p> : null}
 
-          <Textarea
+          <MentionTextarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onValueChange={setText}
             placeholder="Add a comment..."
             maxLength={500}
-            className="min-h-[120px] resize-none"
             disabled={isLoading}
+            className="min-h-[120px]"
+            autoFocus
           />
 
           <div className="flex justify-end gap-2">

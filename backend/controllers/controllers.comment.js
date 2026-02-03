@@ -2,6 +2,7 @@ const Comment = require('../models/Comment');
 const Thread = require('../models/Thread');
 const mongoose = require('mongoose');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
+const { resolveMentionsFromText } = require('../utils/mentions');
 
 // ✅ add
 const Persona = require('../models/Persona');
@@ -91,18 +92,15 @@ exports.createComment = async (req, res) => {
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Comment content is required' });
 
-    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
-    if (blockedSet.has(thread.authorPersona.toString())) {
-      return res.status(403).json({ success: false, message: 'Cannot interact with this content' });
-    }
+    const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(text);
 
-    // ✅ top-level comment (matches your schema usage elsewhere)
     const comment = await Comment.create({
       threadId,
       authorPersona: ctx.activePersonaId,
       content: text,
       parentCommentId: null,
       depth: 0,
+      mentions: mentionedPersonaIds, // ✅
     });
 
     // ✅ counts should include replies too (this is for top-level)
@@ -151,12 +149,15 @@ exports.replyToComment = async (req, res) => {
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Reply content is required' });
 
+    const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(text);
+
     const reply = await Comment.create({
       content: text,
       authorPersona: ctx.activePersonaId,
       threadId: parentComment.threadId,
       parentCommentId: commentId,
       depth: (parentComment.depth || 0) + 1,
+      mentions: mentionedPersonaIds, // ✅
     });
 
     await Comment.updateOne({ _id: commentId }, { $inc: { replyCount: 1 } });

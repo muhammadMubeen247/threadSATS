@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
 const Persona = require('../models/Persona');
 const { getViewerContext, assertAnonConfigured, ensurePersonasForUser } = require('../utils/personaContext');
+const { resolveMentionsFromText } = require('../utils/mentions');
 
 const formatPersona = (p) => ({
   id: p?._id,
@@ -103,10 +104,14 @@ exports.createThread = async (req, res) => {
       }
     }
 
+    // ✅ mentions (optionally restrict by mode/type if you want)
+    const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(content);
+
     const thread = await Thread.create({
       content,
       authorPersona: ctx.activePersonaId,
       images: images || [],
+      mentions: mentionedPersonaIds,
     });
 
     await thread.populate('authorPersona', 'handle displayName profilePic coverPhoto bio rollNumber department batch type');

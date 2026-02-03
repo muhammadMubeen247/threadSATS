@@ -53,6 +53,9 @@ const threadSchema = new mongoose.Schema(
     },
 
     repostCount: { type: Number, default: 0 },
+
+    // ✅ NEW: mentioned personas in content
+    mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
   },
   { timestamps: true }
 );
