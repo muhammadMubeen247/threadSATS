@@ -13,7 +13,7 @@ export default function MentionText({ text, className = '' }) {
             <Link
               key={`${handle}-${idx}`}
               to={`/@${handle}`}
-              className="text-cyan-600 dark:text-cyan-400 font-semibold hover:underline"
+              className="text-cyan-500 dark:text-cyan-400 font-semibold hover:underline"
               onClick={(e) => e.stopPropagation?.()}
             >
               @{handle}

@@ -13,7 +13,6 @@ const threadSchema = new mongoose.Schema(
       default: '',
     },
 
-    // ✅ author is now a Persona (public or anon)
     authorPersona: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Persona',
@@ -32,8 +31,10 @@ const threadSchema = new mongoose.Schema(
       },
     ],
 
-    // ✅ likes are now Personas
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
+
+    // ✅ NEW: stored likesCount for sorting
+    likesCount: { type: Number, default: 0, index: true },
 
     commentCount: { type: Number, default: 0 },
     isDeleted: { type: Boolean, default: false },
@@ -54,7 +55,6 @@ const threadSchema = new mongoose.Schema(
 
     repostCount: { type: Number, default: 0 },
 
-    // ✅ NEW: mentioned personas in content
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
 
     hashtags: [{ type: String, index: true }],
@@ -67,7 +67,9 @@ threadSchema.index({ createdAt: -1 });
 threadSchema.index({ isDeleted: 1 });
 threadSchema.index({ hashtags: 1, createdAt: -1 });
 
-// ✅ uniqueness ONLY for plain repost toggle (per persona now)
+// ✅ helpful for hashtag "top" sorting
+threadSchema.index({ hashtags: 1, isDeleted: 1, likesCount: -1, commentCount: -1, repostCount: -1, createdAt: -1 });
+
 threadSchema.index(
   { authorPersona: 1, repostOf: 1, type: 1 },
   {
@@ -76,9 +78,10 @@ threadSchema.index(
   }
 );
 
-threadSchema.virtual('likesCount').get(function () {
-  return this.likes.length;
-});
+// ❌ REMOVE virtual to avoid name conflict with real field
+// threadSchema.virtual('likesCount').get(function () {
+//   return this.likes.length;
+// });
 
 threadSchema.set('toJSON', { virtuals: true });
 threadSchema.set('toObject', { virtuals: true });

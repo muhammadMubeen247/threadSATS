@@ -25,7 +25,13 @@ const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
     content: thread.content,
     images: thread.images,
     likes: thread.likes,
-    likesCount: thread.likes?.length || 0,
+
+    // ✅ use stored likesCount when present
+    likesCount:
+      typeof thread.likesCount === 'number'
+        ? thread.likesCount
+        : (thread.likes?.length || 0),
+
     commentCount: thread.commentCount || 0,
     repostCount: thread.repostCount || 0,
     createdAt: thread.createdAt,
@@ -485,32 +491,62 @@ exports.toggleLike = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const thread = await Thread.findOne({ _id: threadId, isDeleted: false });
-    if (!thread) return res.status(404).json({ success: false, message: 'Thread not found' });
-
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
 
     if (ctx.activeMode === 'anon') {
       const ok = await assertAnonConfigured(ctx.user);
-      if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+      if (!ok) {
+        return res.status(409).json({
+          success: false,
+          setupRequired: true,
+          message: 'Anonymous persona setup required',
+        });
+      }
     }
 
-    const personaId = ctx.activePersonaId.toString();
-    const idx = (thread.likes || []).findIndex((id) => id.toString() === personaId);
+    const personaId = ctx.activePersonaId;
 
-    if (idx > -1) {
-      thread.likes.splice(idx, 1);
-      await thread.save();
-      return res.status(200).json({ success: true, message: 'Thread unliked', isLiked: false, likesCount: thread.likes.length });
+    // ✅ Try unlike first (only if currently liked)
+    const unliked = await Thread.findOneAndUpdate(
+      { _id: threadId, isDeleted: false, likes: personaId },
+      { $pull: { likes: personaId }, $inc: { likesCount: -1 } },
+      { new: true }
+    ).select('likesCount');
+
+    if (unliked) {
+      return res.status(200).json({
+        success: true,
+        message: 'Thread unliked',
+        isLiked: false,
+        likesCount: Math.max(0, unliked.likesCount || 0),
+      });
     }
 
-    thread.likes.push(ctx.activePersonaId);
-    await thread.save();
-    return res.status(200).json({ success: true, message: 'Thread liked', isLiked: true, likesCount: thread.likes.length });
+    // ✅ Otherwise like (only if not already liked)
+    const liked = await Thread.findOneAndUpdate(
+      { _id: threadId, isDeleted: false, likes: { $ne: personaId } },
+      { $addToSet: { likes: personaId }, $inc: { likesCount: 1 } },
+      { new: true }
+    ).select('likesCount');
+
+    if (!liked) {
+      return res.status(404).json({ success: false, message: 'Thread not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Thread liked',
+      isLiked: true,
+      likesCount: liked.likesCount || 0,
+    });
   } catch (error) {
     console.error('Toggle like error:', error);
-    return res.status(500).json({ success: false, message: 'Server error while toggling like', error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while toggling like',
+      error: error.message,
+    });
   }
 };
 
@@ -882,6 +918,12 @@ exports.getThreadsByHashtag = async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
     const skip = (page - 1) * limit;
 
+    const sort = String(req.query.sort || 'new').toLowerCase();
+    const sortSpec =
+      sort === 'top'
+        ? { likesCount: -1, commentCount: -1, repostCount: -1, createdAt: -1 } // ✅ include likesCount
+        : { createdAt: -1 }; // ✅ "new" (default)
+
     const ctx = await getViewerContext(req.user.id);
     const viewerPersonaId = ctx?.activePersonaId || null;
     const ownedPersonaIds = ctx?.ownedPersonaIds || [];
@@ -906,12 +948,11 @@ exports.getThreadsByHashtag = async (req, res) => {
           },
         ],
       })
-      .sort({ createdAt: -1 })
+      .sort(sortSpec) // ✅ use sort
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // blocked filtering (same strategy as feeds)
     const visible = docs.filter((t) => {
       const involved = collectPersonaIdsInThreadDoc(t);
       for (const id of involved) if (blockedSet.has(id)) return false;
@@ -938,14 +979,17 @@ exports.getThreadsByHashtag = async (req, res) => {
       .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
       .map((t) => formatFeedItem(t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet));
 
+    const pages = Math.ceil(total / limit);
+
     return res.status(200).json({
       success: true,
       tag,
+      sort, // ✅ return sort
       count: threads.length,
       total,
       page,
-      pages: Math.ceil(total / limit),
-      hasMore: page < Math.ceil(total / limit),
+      pages,
+      hasMore: page < pages,
       threads,
     });
   } catch (error) {
