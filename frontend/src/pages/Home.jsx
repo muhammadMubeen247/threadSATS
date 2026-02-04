@@ -168,19 +168,19 @@ export default function Home() {
             <TabsList className="w-full justify-start rounded-none border-b bg-background p-0 h-12 sm:h-14 sticky top-16 z-10">
               <TabsTrigger
                 value="forYou"
-                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-accent/60"
               >
                 For You
               </TabsTrigger>
               <TabsTrigger
                 value="following"
-                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-accent/60"
               >
                 Following
               </TabsTrigger>
               <TabsTrigger
                 value="yourBatch"
-                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-accent/60"
               >
                 Your Batch
               </TabsTrigger>

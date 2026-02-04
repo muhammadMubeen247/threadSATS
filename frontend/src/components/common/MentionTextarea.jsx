@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import api from '@/api/axios';
-import { findActiveMentionAtCaret, tokenizeMentions } from '@/utils/mentions';
+import { findActiveMentionAtCaret, tokenizeMentions } from '@/utils/richText';
 
 export default function MentionTextarea({
   value,

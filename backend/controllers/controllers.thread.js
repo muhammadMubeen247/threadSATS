@@ -5,6 +5,7 @@ const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
 const Persona = require('../models/Persona');
 const { getViewerContext, assertAnonConfigured, ensurePersonasForUser } = require('../utils/personaContext');
 const { resolveMentionsFromText } = require('../utils/mentions');
+const { extractHashtags } = require('../utils/hashtags'); // ✅ add
 
 const formatPersona = (p) => ({
   id: p?._id,
@@ -107,11 +108,15 @@ exports.createThread = async (req, res) => {
     // ✅ mentions (optionally restrict by mode/type if you want)
     const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(content);
 
+    // ✅ hashtags (thread-only source of truth)
+    const hashtags = extractHashtags(content);
+
     const thread = await Thread.create({
       content,
       authorPersona: ctx.activePersonaId,
       images: images || [],
       mentions: mentionedPersonaIds,
+      hashtags, // ✅
     });
 
     await thread.populate('authorPersona', 'handle displayName profilePic coverPhoto bio rollNumber department batch type');
@@ -589,12 +594,16 @@ exports.createQuoteRepost = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
+    // ✅ hashtags for quote content too
+    const hashtags = extractHashtags(text);
+
     const quote = await Thread.create({
       type: 'quote',
       repostOf: threadId,
       authorPersona: ctx.activePersonaId,
       content: text,
       images: [],
+      hashtags, // ✅
     });
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
@@ -793,6 +802,154 @@ exports.getMyThreads = async (req, res) => {
     });
   } catch (error) {
     console.error('Get my threads error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// GET /api/trends?limit=10&windowDays=7&q=cs
+exports.getTrends = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 50);
+    const windowDays = Math.min(Math.max(parseInt(req.query.windowDays) || 7, 1), 60);
+
+    const qRaw = typeof req.query.q === 'string' ? req.query.q : '';
+    const q = qRaw.trim().replace(/^#/, '').toLowerCase();
+
+    const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+
+    // Safety cap: max number of unique tags we’ll rank per request
+    const RANK_CAP = 5000;
+
+    const pipeline = [
+      {
+        $match: {
+          isDeleted: false,
+          createdAt: { $gte: windowStart },
+          hashtags: { $exists: true, $ne: [] },
+        },
+      },
+      { $unwind: '$hashtags' },
+      { $group: { _id: '$hashtags', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+
+      // ✅ compute global rank in JS after we pull a capped sorted list
+      { $limit: RANK_CAP },
+    ];
+
+    const rows = await Thread.aggregate(pipeline);
+
+    // ✅ assign global rank (within windowDays)
+    const rankedAll = rows.map((r, i) => ({
+      tag: r._id,
+      count: r.count,
+      rank: i + 1,
+    }));
+
+    // ✅ apply search filter without changing the rank
+    const filtered = q ? rankedAll.filter((x) => x.tag.startsWith(q)) : rankedAll;
+
+    const results = filtered.slice(0, limit);
+
+    return res.status(200).json({
+      success: true,
+      windowDays,
+      q: q || '',
+      count: results.length,
+      totalRanked: rankedAll.length,
+      results,
+    });
+  } catch (error) {
+    console.error('getTrends error:', error);
+    return res
+      .status(500)
+      .json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// GET /api/threads/hashtag/:tag?page=1&limit=20
+exports.getThreadsByHashtag = async (req, res) => {
+  try {
+    const tag = String(req.params.tag || '').trim().replace(/^#/, '').toLowerCase();
+    if (!tag || tag.length < 2 || tag.length > 30) {
+      return res.status(400).json({ success: false, message: 'Invalid hashtag' });
+    }
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
+    const ctx = await getViewerContext(req.user.id);
+    const viewerPersonaId = ctx?.activePersonaId || null;
+    const ownedPersonaIds = ctx?.ownedPersonaIds || [];
+
+    const blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+    const query = { isDeleted: false, hashtags: tag };
+
+    const total = await Thread.countDocuments(query);
+
+    const docs = await Thread.find(query)
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // blocked filtering (same strategy as feeds)
+    const visible = docs.filter((t) => {
+      const involved = collectPersonaIdsInThreadDoc(t);
+      for (const id of involved) if (blockedSet.has(id)) return false;
+      return true;
+    });
+
+    const targets = visible.map((t) => t._id).filter(Boolean);
+
+    const repostedTargetIdSet = new Set();
+    if (viewerPersonaId && targets.length) {
+      const myReposts = await Thread.find({
+        type: 'repost',
+        authorPersona: viewerPersonaId,
+        repostOf: { $in: targets },
+        isDeleted: false,
+      })
+        .select('repostOf')
+        .lean();
+
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+    }
+
+    const threads = visible
+      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
+      .map((t) => formatFeedItem(t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet));
+
+    return res.status(200).json({
+      success: true,
+      tag,
+      count: threads.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      hasMore: page < Math.ceil(total / limit),
+      threads,
+    });
+  } catch (error) {
+    console.error('getThreadsByHashtag error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

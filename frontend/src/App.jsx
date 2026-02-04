@@ -8,6 +8,9 @@ import Home from './pages/Home';
 import ProfilePage from './pages/ProfilePage';
 import ThreadDetail from './pages/ThreadDetail';
 import Messages from './pages/Messages';
+import SuggestedUsersPage from './pages/SuggestedUsersPage';
+import TrendsPage from './pages/TrendsPage';
+import HashtagThreadsPage from './pages/HashtagThreadsPage';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import { useAuthStore } from '@/store/authStore';
@@ -99,6 +102,32 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <ProfilePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/suggested-users"
+        element={
+          <RequireAuth>
+            <SuggestedUsersPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/trends"
+        element={
+          <RequireAuth>
+            <TrendsPage />
+          </RequireAuth>
+        }
+      />
+
+      {/* ✅ FIX: param name + remove leading slash for consistency */}
+      <Route
+        path="hashtag/:tag"
+        element={
+          <RequireAuth>
+            <HashtagThreadsPage />
           </RequireAuth>
         }
       />

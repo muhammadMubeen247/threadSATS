@@ -13,6 +13,7 @@ const {
   toggleRepost,
   createQuoteRepost,
   getMyThreads,
+  getThreadsByHashtag, // ✅ add
 } = require('../controllers/controllers.thread');
 
 const { createComment, getThreadComments } = require('../controllers/controllers.comment');
@@ -76,6 +77,10 @@ router.get('/feed/following', protect, getFollowingFeed);
 router.get('/me', protect, getMyThreads);
 
 router.get('/user/:userId', protect, userIdValidation, validate, getUserThreads);
+
+// ✅ FIX: hashtag route must be BEFORE "/:threadId"
+router.get('/hashtag/:tag', protect, getThreadsByHashtag);
+
 router.get('/:threadId', protect, threadIdValidation, validate, getThreadById);
 
 // ✅ Protected routes

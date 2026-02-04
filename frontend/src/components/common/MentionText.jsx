@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { tokenizeMentions } from '@/utils/mentions';
+import { tokenizeMentions } from '@/utils/richText';
 
 export default function MentionText({ text, className = '' }) {
   const tokens = tokenizeMentions(text);

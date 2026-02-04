@@ -25,6 +25,7 @@ const {
   // ✅ add these
   getPersonaFollowersByHandle,
   getPersonaFollowingByHandle,
+  getSuggestedPersonas,
 } = require('../controllers/controllers.persona');
 
 // Optional auth middleware (same idea as in threads.js)
@@ -124,6 +125,7 @@ router.get('/:handle/replies', handleValidation, validate, protect, getPersonaRe
 // ✅ followers/following lists (public/optional-auth)
 router.get('/:handle/followers', handleValidation, validate, protect, getPersonaFollowersByHandle);
 router.get('/:handle/following', handleValidation, validate, protect, getPersonaFollowingByHandle);
+router.get('/suggested', protect, getSuggestedPersonas);
 
 // protected interactions
 router.post('/:handle/follow', handleValidation, validate, protect, followPersonaByHandle);

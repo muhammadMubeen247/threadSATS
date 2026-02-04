@@ -56,6 +56,8 @@ const threadSchema = new mongoose.Schema(
 
     // ✅ NEW: mentioned personas in content
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
+
+    hashtags: [{ type: String, index: true }],
   },
   { timestamps: true }
 );
@@ -63,6 +65,7 @@ const threadSchema = new mongoose.Schema(
 threadSchema.index({ authorPersona: 1, createdAt: -1 });
 threadSchema.index({ createdAt: -1 });
 threadSchema.index({ isDeleted: 1 });
+threadSchema.index({ hashtags: 1, createdAt: -1 });
 
 // ✅ uniqueness ONLY for plain repost toggle (per persona now)
 threadSchema.index(

@@ -1,5 +1,13 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, User, Search, Settings, PlusCircle, MessageCircle } from 'lucide-react'; // ✅ add MessageCircle
+import {
+  Home,
+  User,
+  Search,
+  Settings,
+  PlusCircle,
+  MessageCircle,
+  TrendingUp, // ✅ add
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -14,17 +22,18 @@ export default function Sidebar({ onCreateThread }) {
     { name: 'Home', icon: Home, path: '/home' },
     { name: 'Profile', icon: User, path: profilePath },
 
-    // ✅ add Messages under Profile
     { name: 'Messages', icon: MessageCircle, path: '/messages' },
 
-    { name: 'Search', icon: Search, path: '/search' },
-    { name: 'Settings', icon: Settings, path: '/settings' },
+    // ✅ NEW: Trends
+    { name: 'Trends', icon: TrendingUp, path: '/trends' },
+
+    // { name: 'Search', icon: Search, path: '/search' },
+    // { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   return (
     <aside className="sticky top-16 h-[calc(100vh-4rem)] w-64 border-r bg-background p-4">
       <nav className="space-y-2">
-        {/* Create Thread Button */}
         {onCreateThread && (
           <Button onClick={onCreateThread} className="w-full justify-start" size="lg">
             <PlusCircle className="mr-2 h-5 w-5" />
@@ -32,14 +41,14 @@ export default function Sidebar({ onCreateThread }) {
           </Button>
         )}
 
-        {/* Navigation Items */}
         {navItems.map((item) => {
           const Icon = item.icon;
 
-          // ✅ keep Messages active for /messages/:conversationId too
           const isActive =
             location.pathname === item.path ||
-            (item.path === '/messages' && location.pathname.startsWith('/messages'));
+            (item.path === '/messages' && location.pathname.startsWith('/messages')) ||
+            (item.path === '/trends' && location.pathname.startsWith('/trends')) || // ✅
+            (item.path === '/hashtag/:tag' && location.pathname.startsWith('/hashtag')); // (optional, harmless)
 
           return (
             <Link key={item.path} to={item.path}>

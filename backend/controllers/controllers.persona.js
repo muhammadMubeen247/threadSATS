@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 const Persona = require('../models/Persona');
 const Thread = require('../models/Thread');
-const Comment = require('../models/Comment'); // ✅ add
+const Comment = require('../models/Comment');
 const User = require('../models/User');
+const Conversation = require('../models/Conversation');
 const cloudinary = require('../config/cloudinary');
 const { Readable } = require('stream');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
@@ -1144,6 +1145,228 @@ exports.getPersonaFollowingByHandle = async (req, res) => {
     });
   } catch (error) {
     console.error('getPersonaFollowingByHandle error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ GET /api/personas/suggested (auth)
+exports.getSuggestedPersonas = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const viewerPersonaId = ctx.activePersonaId?.toString?.() || String(ctx.activePersonaId);
+    if (!viewerPersonaId) {
+      return res.status(400).json({ success: false, message: 'Active persona not found' });
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 50);
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const windowDays = Math.min(Math.max(parseInt(req.query.windowDays) || 30, 1), 180);
+    const skip = (page - 1) * limit;
+
+    const now = Date.now();
+    const windowStart = new Date(now - windowDays * 24 * 60 * 60 * 1000);
+    const activeStart = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+    const blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+
+    const viewer = await Persona.findById(viewerPersonaId).select('following').lean();
+    const viewerFollowing = viewer?.following || [];
+    const viewerFollowingSet = new Set(viewerFollowing.map((x) => x.toString()));
+
+    const scoreMap = new Map(); // personaId -> number
+    const reasonMap = new Map(); // personaId -> [string]
+
+    const addScore = (id, delta, reason) => {
+      if (!id) return;
+      const pid = id.toString();
+
+      // exclude only the active persona itself (other owned personas are allowed)
+      if (pid === viewerPersonaId) return;
+
+      // filters
+      if (blockedSet.has(pid)) return;
+      if (viewerFollowingSet.has(pid)) return;
+
+      scoreMap.set(pid, (scoreMap.get(pid) || 0) + delta);
+
+      if (reason) {
+        const arr = reasonMap.get(pid) || [];
+        arr.push(reason);
+        reasonMap.set(pid, arr);
+      }
+    };
+
+    // 1) DM contacts (+2)
+    const convs = await Conversation.find({ participants: viewerPersonaId })
+      .select('participants')
+      .limit(500)
+      .lean();
+
+    for (const c of convs) {
+      const other = (c.participants || []).find((p) => p.toString() !== viewerPersonaId);
+      if (other) addScore(other, 2, 'dm');
+    }
+
+    // 2) Mutual follows: followed-by-followed (+3 per mutual)
+    if (viewerFollowing.length) {
+      const mutualAgg = await Persona.aggregate([
+        { $match: { _id: { $in: viewerFollowing } } },
+        { $project: { following: 1 } },
+        { $unwind: '$following' },
+        { $group: { _id: '$following', mutualCount: { $sum: 1 } } },
+        { $sort: { mutualCount: -1 } },
+        { $limit: 1000 },
+      ]);
+
+      for (const r of mutualAgg) {
+        const cnt = r?.mutualCount || 0;
+        if (cnt > 0) addScore(r._id, cnt * 3, `mutuals:${cnt}`);
+      }
+    }
+
+    // 3) Engagement overlap (+2 per shared thread)
+    const likedThreads = await Thread.find({
+      isDeleted: false,
+      createdAt: { $gte: windowStart },
+      likes: new mongoose.Types.ObjectId(viewerPersonaId),
+    })
+      .select('_id')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
+
+    const commentedThreads = await Comment.find({
+      isDeleted: false,
+      createdAt: { $gte: windowStart },
+      authorPersona: new mongoose.Types.ObjectId(viewerPersonaId),
+    })
+      .select('threadId')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
+
+    const engagedThreadIdSet = new Set();
+    for (const t of likedThreads) engagedThreadIdSet.add(t._id.toString());
+    for (const c of commentedThreads) engagedThreadIdSet.add(c.threadId.toString());
+
+    const engagedThreadIds = [...engagedThreadIdSet].slice(0, 200).map((id) => new mongoose.Types.ObjectId(id));
+
+    if (engagedThreadIds.length) {
+      const threads = await Thread.find({ _id: { $in: engagedThreadIds }, isDeleted: false })
+        .select('_id authorPersona likes')
+        .lean();
+
+      const comments = await Comment.find({ threadId: { $in: engagedThreadIds }, isDeleted: false })
+        .select('threadId authorPersona')
+        .lean();
+
+      const shared = new Map(); // pid -> Set(threadId)
+      const addShared = (personaId, threadId) => {
+        if (!personaId || !threadId) return;
+        const pid = personaId.toString();
+        const tid = threadId.toString();
+        const set = shared.get(pid) || new Set();
+        set.add(tid);
+        shared.set(pid, set);
+      };
+
+      for (const t of threads) {
+        addShared(t.authorPersona, t._id);
+        for (const liker of t.likes || []) addShared(liker, t._id);
+      }
+      for (const c of comments) addShared(c.authorPersona, c.threadId);
+
+      for (const [pid, set] of shared.entries()) {
+        const cnt = set.size;
+        if (cnt > 0) addScore(pid, cnt * 2, `engaged:${cnt}`);
+      }
+    }
+
+    // 4) Trending (+1..3)
+    const trendingAgg = await Thread.aggregate([
+      { $match: { isDeleted: false, createdAt: { $gte: windowStart } } },
+      {
+        $project: {
+          authorPersona: 1,
+          s: {
+            $add: [
+              { $size: { $ifNull: ['$likes', []] } },
+              { $ifNull: ['$commentCount', 0] },
+              { $ifNull: ['$repostCount', 0] },
+            ],
+          },
+        },
+      },
+      { $group: { _id: '$authorPersona', total: { $sum: '$s' } } },
+      { $sort: { total: -1 } },
+      { $limit: 100 },
+    ]);
+
+    trendingAgg.forEach((r, idx) => {
+      const points = idx < 10 ? 3 : idx < 25 ? 2 : 1;
+      addScore(r._id, points, `trending:${points}`);
+    });
+
+    // 5) Recency (+1)
+    const recent = await Persona.find({}).select('_id createdAt').sort({ createdAt: -1 }).limit(100).lean();
+    for (const p of recent) addScore(p._id, 1, 'new');
+
+    // 6) Active recently (+1) among candidates
+    const candidateIds = [...scoreMap.keys()].slice(0, 2000).map((id) => new mongoose.Types.ObjectId(id));
+    if (candidateIds.length) {
+      const [activeThreadAuthors, activeCommentAuthors] = await Promise.all([
+        Thread.distinct('authorPersona', { authorPersona: { $in: candidateIds }, isDeleted: false, createdAt: { $gte: activeStart } }),
+        Comment.distinct('authorPersona', { authorPersona: { $in: candidateIds }, isDeleted: false, createdAt: { $gte: activeStart } }),
+      ]);
+
+      const activeSet = new Set([
+        ...(activeThreadAuthors || []).map((x) => x.toString()),
+        ...(activeCommentAuthors || []).map((x) => x.toString()),
+      ]);
+
+      for (const id of activeSet) addScore(id, 1, 'active_recent');
+    }
+
+    // ✅ ranked list for pagination
+    const rankedAll = [...scoreMap.entries()].sort((a, b) => b[1] - a[1]);
+    const totalCandidates = rankedAll.length;
+
+    const pageSlice = rankedAll.slice(skip, skip + limit);
+    const hasMore = skip + limit < totalCandidates;
+
+    const pageIds = pageSlice.map(([id]) => new mongoose.Types.ObjectId(id));
+    const docs = await Persona.find({ _id: { $in: pageIds } })
+      .select('_id handle displayName profilePic type rollNumber')
+      .lean();
+
+    const docMap = new Map(docs.map((d) => [d._id.toString(), d]));
+
+    const results = pageSlice
+      .map(([id, score]) => ({ id: id.toString(), score }))
+      .filter((x) => docMap.has(x.id))
+      .map(({ id, score }) => {
+        const p = docMap.get(id);
+        return {
+          ...formatPersonaListItem(p, viewerFollowingSet),
+          score,
+          reasons: reasonMap.get(id) || [],
+        };
+      });
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      hasMore,
+      windowDays,
+      totalCandidates,
+      count: results.length,
+      results,
+    });
+  } catch (error) {
+    console.error('getSuggestedPersonas error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

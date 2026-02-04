@@ -27,7 +27,7 @@ import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 import QuoteRepostModal from '@/components/feed/QuoteRepostModal';
 import MentionTextarea from '@/components/common/MentionTextarea';
-import MentionText from '@/components/common/MentionText';
+import RichText from '@/components/common/RichText';
 
 export default function ThreadDetail() {
   const { threadId } = useParams();
@@ -407,7 +407,7 @@ export default function ThreadDetail() {
 
               {item?.content ? (
                 <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap break-words">
-                  <MentionText text={item.content} />
+                  <RichText text={item.content} enableHashtags />
                 </p>
               ) : null}
 
@@ -496,7 +496,7 @@ export default function ThreadDetail() {
               </div>
 
               <p className="text-sm leading-relaxed">
-                <MentionText text={comment.content} />
+                <RichText text={comment.content} enableHashtags={false} />
               </p>
 
               <div className="flex items-center gap-4 mt-2 ml-1">
@@ -759,7 +759,7 @@ export default function ThreadDetail() {
                 {/* Main content (hide if empty, e.g. simple repost) */}
                 {typeof thread.content === 'string' && thread.content.trim().length > 0 ? (
                   <p className="mt-2 text-base">
-                    <MentionText text={thread.content} />
+                    <RichText text={thread.content} enableHashtags />
                   </p>
                 ) : null}
 
