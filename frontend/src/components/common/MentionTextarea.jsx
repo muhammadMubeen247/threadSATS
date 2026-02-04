@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import api from '@/api/axios';
-import { findActiveMentionAtCaret, tokenizeMentions } from '@/utils/richText';
+import {
+  findActiveMentionAtCaret,
+  findActiveHashtagAtCaret,
+  tokenizeRichText,
+} from '@/utils/richText';
 
 export default function MentionTextarea({
   value,
@@ -11,25 +15,25 @@ export default function MentionTextarea({
   maxLength,
   disabled,
   className = '',
-  sanitize, // optional (e.g. strip bidi)
+  sanitize,
   autoFocus,
+
+  enableHashtagSuggestions = false,
 }) {
   const textareaRef = useRef(null);
   const abortRef = useRef(null);
 
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(null); // { start, end, query }
+  const [active, setActive] = useState(null); // { type: 'mention'|'hashtag', start, end, query }
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [highlight, setHighlight] = useState(0);
 
-  // scroll sync for overlay
   const [scrollTop, setScrollTop] = useState(0);
 
   const q = useMemo(() => (active?.query ?? '').trim(), [active]);
 
   const getInitials = (h) => (String(h || '').substring(0, 2).toUpperCase() || '?');
-
   const apply = (s) => (typeof sanitize === 'function' ? sanitize(s) : s);
 
   const updateActiveFromDom = () => {
@@ -37,9 +41,17 @@ export default function MentionTextarea({
     if (!el) return;
 
     const caret = el.selectionStart ?? (value?.length || 0);
-    const found = findActiveMentionAtCaret(value || '', caret);
 
-    if (!found) {
+    const mention = findActiveMentionAtCaret(value || '', caret);
+    const hashtag = enableHashtagSuggestions ? findActiveHashtagAtCaret(value || '', caret) : null;
+
+    // pick the one closest to caret (largest start)
+    let picked = null;
+    if (mention && hashtag) picked = mention.start >= hashtag.start ? { type: 'mention', ...mention } : { type: 'hashtag', ...hashtag };
+    else if (mention) picked = { type: 'mention', ...mention };
+    else if (hashtag) picked = { type: 'hashtag', ...hashtag };
+
+    if (!picked) {
       setActive(null);
       setOpen(false);
       setResults([]);
@@ -48,28 +60,32 @@ export default function MentionTextarea({
       return;
     }
 
-    setActive(found);
+    setActive(picked);
 
-    // only open suggestions if user typed at least 1 char after @
-    if (found.query.length >= 1) setOpen(true);
-    else {
-      setOpen(false);
-      setResults([]);
-      setLoading(false);
-      if (abortRef.current) abortRef.current.abort();
+    // open rules:
+    // - mentions: open when at least 1 char after @
+    // - hashtags: open even when empty after # (show top trends)
+    if (picked.type === 'mention') {
+      if (picked.query.length >= 1) setOpen(true);
+      else {
+        setOpen(false);
+        setResults([]);
+        setLoading(false);
+        if (abortRef.current) abortRef.current.abort();
+      }
+    } else {
+      setOpen(true);
     }
   };
 
   const onChange = (e) => {
     const next = apply(e.target.value);
     onValueChange?.(next);
-
-    // update active mention after value updates
     queueMicrotask(() => updateActiveFromDom());
   };
 
   useEffect(() => {
-    if (!open || !active || q.length < 1) return;
+    if (!open || !active) return;
 
     setLoading(true);
 
@@ -79,13 +95,24 @@ export default function MentionTextarea({
         const controller = new AbortController();
         abortRef.current = controller;
 
-        const res = await api.get('/personas/search', {
-          params: { q, page: 1, limit: 8 },
+        if (active.type === 'mention') {
+          // no query => do nothing (kept closed by updateActiveFromDom)
+          const res = await api.get('/personas/search', {
+            params: { q, page: 1, limit: 8 },
+            signal: controller.signal,
+          });
+          setResults(Array.isArray(res?.results) ? res.results : []);
+          setHighlight(0);
+          return;
+        }
+
+        // ✅ hashtag suggestions from trends
+        const res = await api.get('/trends', {
+          params: { limit: 8, windowDays: 7, ...(q ? { q } : {}) },
           signal: controller.signal,
         });
 
-        const arr = Array.isArray(res?.results) ? res.results : [];
-        setResults(arr);
+        setResults(Array.isArray(res?.results) ? res.results : []);
         setHighlight(0);
       } catch (e) {
         if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') return;
@@ -96,10 +123,10 @@ export default function MentionTextarea({
     }, 200);
 
     return () => window.clearTimeout(t);
-  }, [open, q, active]);
+  }, [open, active?.type, q]);
 
   const insertMention = (handle) => {
-    if (!active) return;
+    if (!active || active.type !== 'mention') return;
 
     const h = String(handle || '').trim().replace(/^@+/, '');
     if (!h) return;
@@ -107,6 +134,31 @@ export default function MentionTextarea({
     const before = (value || '').slice(0, active.start);
     const after = (value || '').slice(active.end);
     const inserted = `@${h} `;
+
+    const next = apply(before + inserted + after);
+    onValueChange?.(next);
+
+    setOpen(false);
+    setResults([]);
+
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const pos = (before + inserted).length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const insertHashtag = (tag) => {
+    if (!active || active.type !== 'hashtag') return;
+
+    const t = String(tag || '').trim().replace(/^#+/, '').toLowerCase();
+    if (!t) return;
+
+    const before = (value || '').slice(0, active.start);
+    const after = (value || '').slice(active.end);
+    const inserted = `#${t} `;
 
     const next = apply(before + inserted + after);
     onValueChange?.(next);
@@ -133,29 +185,36 @@ export default function MentionTextarea({
       e.preventDefault();
       setHighlight((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
-      // only intercept Enter if mention dropdown is open
       e.preventDefault();
-      const p = results[highlight];
-      const handle = p?.handle || p?.username;
-      insertMention(handle);
+
+      const picked = results[highlight];
+      if (active?.type === 'mention') {
+        const handle = picked?.handle || picked?.username;
+        insertMention(handle);
+      } else if (active?.type === 'hashtag') {
+        insertHashtag(picked?.tag);
+      }
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
     }
   };
 
-  const tokens = useMemo(() => tokenizeMentions(value || ''), [value]);
+  // ✅ highlight layer: mentions always; hashtags only when suggestions enabled (thread/quote composer)
+  const tokens = useMemo(
+    () => tokenizeRichText(value || '', { enableMentions: true, enableHashtags: !!enableHashtagSuggestions }),
+    [value, enableHashtagSuggestions]
+  );
 
   return (
-    <div className="relative">
-      {/* ✅ Highlight layer (behind textarea) */}
+    <div className={`relative ${className}`}>
+      {/* Highlight layer */}
       <div
         aria-hidden="true"
         className={[
           'absolute inset-0 px-3 py-2 rounded-md',
           'whitespace-pre-wrap break-words',
           'pointer-events-none select-none',
-          // keep it visually aligned with Textarea
           'text-sm leading-5',
           disabled ? 'text-muted-foreground' : 'text-foreground',
         ].join(' ')}
@@ -163,24 +222,28 @@ export default function MentionTextarea({
         <div style={{ transform: `translateY(-${scrollTop}px)` }}>
           {tokens.map((t, idx) => {
             if (t.type === 'mention') {
-              const handle = String(t.handle || '').trim();
+              const handle = String(t.value || '').trim();
               return (
-                <span
-                  key={`${handle}-${idx}`}
-                  className="text-primary font-semibold bg-primary/10 rounded px-1"
-                >
+                <span key={`m-${handle}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold bg-blue-500/10 rounded px-1">
                   @{handle}
+                </span>
+              );
+            }
+            if (t.type === 'hashtag') {
+              const tag = String(t.value || '').trim().toLowerCase();
+              return (
+                <span key={`h-${tag}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold bg-blue-500/10 rounded px-1">
+                  #{tag}
                 </span>
               );
             }
             return <span key={idx}>{t.value}</span>;
           })}
-          {/* keep final newline height consistent */}
           <span>{'\n'}</span>
         </div>
       </div>
 
-      {/* ✅ Real textarea on top (transparent text, visible caret) */}
+      {/* Real textarea */}
       <Textarea
         ref={textareaRef}
         value={value}
@@ -193,13 +256,7 @@ export default function MentionTextarea({
         maxLength={maxLength}
         disabled={disabled}
         autoFocus={autoFocus}
-        className={[
-          // show overlay text instead of textarea text
-          'relative bg-transparent text-transparent caret-foreground',
-          // selection still visible
-          'selection:bg-primary/20',
-          className,
-        ].join(' ')}
+        className="relative bg-transparent text-transparent caret-foreground selection:bg-primary/20"
       />
 
       {/* Dropdown */}
@@ -208,7 +265,34 @@ export default function MentionTextarea({
           {loading ? (
             <div className="p-3 text-sm text-muted-foreground">Searching…</div>
           ) : results.length === 0 ? (
-            <div className="p-3 text-sm text-muted-foreground">No matches</div>
+            <div className="p-3 text-sm text-muted-foreground">
+              {active?.type === 'hashtag' ? 'No trends found' : 'No matches'}
+            </div>
+          ) : active?.type === 'hashtag' ? (
+            <ul className="max-h-72 overflow-auto">
+              {results.map((t, idx) => (
+                <li key={`${t?.tag}-${idx}`}>
+                  <button
+                    type="button"
+                    className={`w-full px-3 py-2 text-left hover:bg-accent flex items-center justify-between ${
+                      idx === highlight ? 'bg-accent' : ''
+                    }`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertHashtag(t?.tag)}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-blue-600 dark:text-blue-400 truncate">
+                        #{t?.tag}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Trending at #{t?.rank ?? ''}
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{t?.count ?? 0}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
             <ul className="max-h-72 overflow-auto">
               {results.map((p, idx) => {
@@ -223,7 +307,7 @@ export default function MentionTextarea({
                       className={`w-full px-3 py-2 text-left hover:bg-accent flex items-center gap-3 ${
                         idx === highlight ? 'bg-accent' : ''
                       }`}
-                      onMouseDown={(e) => e.preventDefault()} // keep focus
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => insertMention(handle)}
                     >
                       <Avatar className="h-8 w-8">

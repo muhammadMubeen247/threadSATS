@@ -63,6 +63,7 @@ export default function QuoteRepostModal({ open, onClose, threadId, onCreated })
             disabled={isLoading}
             className="min-h-[120px]"
             autoFocus
+            enableHashtagSuggestions // ✅
           />
 
           <div className="flex justify-end gap-2">

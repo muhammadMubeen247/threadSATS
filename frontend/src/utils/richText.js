@@ -74,3 +74,24 @@ export function tokenizeRichText(text, { enableMentions = true, enableHashtags =
 
   return tokens;
 }
+
+export function findActiveHashtagAtCaret(text, caretIndex) {
+  const s = typeof text === 'string' ? text : '';
+  const caret = Math.max(0, Math.min(caretIndex ?? s.length, s.length));
+
+  const before = s.slice(0, caret);
+  const hash = before.lastIndexOf('#');
+  if (hash === -1) return null;
+
+  // Must be start or preceded by non [a-zA-Z0-9_]
+  const prev = hash === 0 ? '' : before[hash - 1];
+  const prevOk = hash === 0 || /[^a-zA-Z0-9_]/.test(prev);
+  if (!prevOk) return null;
+
+  const query = before.slice(hash + 1);
+
+  // query must be only [a-zA-Z0-9_], allow empty while typing
+  if (!/^[a-zA-Z0-9_]{0,30}$/.test(query)) return null;
+
+  return { start: hash, end: caret, query };
+}

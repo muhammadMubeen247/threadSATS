@@ -250,6 +250,7 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
               disabled={isLoading}
               className="text-lg"
               autoFocus
+              enableHashtagSuggestions // ✅
             />
 
             <div className="text-right text-sm text-muted-foreground">
