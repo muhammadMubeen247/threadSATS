@@ -7,6 +7,8 @@ const { getViewerContext } = require('../utils/personaContext');
 // ✅ change: also import isPersonaOnline
 const { getIO, isPersonaOnline } = require('../socket');
 
+const { upsertNotification } = require('../utils/notifications'); // ✅ add
+
 const roomName = (conversationId) => `dm:${conversationId}`;
 const personaRoom = (personaId) => `persona:${personaId}`;
 
@@ -212,6 +214,17 @@ exports.sendMessage = async (req, res) => {
     });
 
     await Conversation.findByIdAndUpdate(id, { lastMessage: msg._id }, { new: false });
+
+    // ✅ NEW: notification (aggregate) for receiver
+    upsertNotification({
+      recipientPersonaId: otherId,
+      actorPersonaId: ctx.activePersonaId,
+      type: 'dm',
+      groupKey: `dm:conversation:${id}`,
+      entityType: 'conversation',
+      entityId: id,
+      secondaryEntityId: msg._id,
+    }).catch((e) => console.error('notif upsert failed (dm):', e));
 
     // ✅ emit realtime event (include receipts)
     const payload = {

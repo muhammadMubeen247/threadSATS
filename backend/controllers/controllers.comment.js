@@ -3,9 +3,9 @@ const Thread = require('../models/Thread');
 const mongoose = require('mongoose');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
 const { resolveMentionsFromText } = require('../utils/mentions');
-
-// ✅ add
 const Persona = require('../models/Persona');
+
+const { upsertNotification } = require('../utils/notifications'); // ✅ add
 
 const formatPersona = (p) => ({
   id: p?._id,
@@ -89,6 +89,12 @@ exports.createComment = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
+    // ✅ block enforcement: cannot comment on blocked/blockedBy thread author
+    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
+    if (blockedSet.has(thread.authorPersona.toString())) {
+      return res.status(403).json({ success: false, message: 'Cannot interact with this content' });
+    }
+
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Comment content is required' });
 
@@ -100,11 +106,39 @@ exports.createComment = async (req, res) => {
       content: text,
       parentCommentId: null,
       depth: 0,
-      mentions: mentionedPersonaIds, // ✅
+      mentions: mentionedPersonaIds,
     });
 
-    // ✅ counts should include replies too (this is for top-level)
     await Thread.findByIdAndUpdate(threadId, { $inc: { commentCount: 1 } });
+
+    // ✅ notification (aggregate) to thread author (skip self handled by util)
+    upsertNotification({
+      recipientPersonaId: thread.authorPersona,
+      actorPersonaId: ctx.activePersonaId,
+      type: 'comment',
+      groupKey: `comment:thread:${threadId}`,
+      entityType: 'thread',
+      entityId: threadId,
+      secondaryEntityId: comment._id,
+    }).catch(() => {});
+
+    // ✅ @mention notifications (correct)
+    if (Array.isArray(mentionedPersonaIds) && mentionedPersonaIds.length) {
+      const unique = [...new Set(mentionedPersonaIds.map(String))];
+      Promise.allSettled(
+        unique.map((pid) =>
+          upsertNotification({
+            recipientPersonaId: pid,
+            actorPersonaId: ctx.activePersonaId,
+            type: 'mention',
+            groupKey: `mention:thread:${threadId}`,
+            entityType: 'thread',
+            entityId: threadId,
+            secondaryEntityId: comment._id,
+          })
+        )
+      ).catch(() => {});
+    }
 
     const populatedComment = await Comment.findById(comment._id).populate(
       'authorPersona',
@@ -132,7 +166,7 @@ exports.replyToComment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid comment ID' });
     }
 
-    const parentComment = await Comment.findOne({ _id: commentId, isDeleted: false }).select('_id threadId depth isDeleted');
+    const parentComment = await Comment.findOne({ _id: commentId, isDeleted: false }).select('_id threadId depth isDeleted authorPersona');
     if (!parentComment) return res.status(404).json({ success: false, message: 'Comment not found' });
 
     const thread = await Thread.findOne({ _id: parentComment.threadId, isDeleted: false }).select('_id authorPersona');
@@ -146,6 +180,12 @@ exports.replyToComment = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
+    // ✅ block enforcement: cannot reply if blocked either way with parent author or thread author
+    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
+    if (blockedSet.has(parentComment.authorPersona.toString()) || blockedSet.has(thread.authorPersona.toString())) {
+      return res.status(403).json({ success: false, message: 'Cannot interact with this content' });
+    }
+
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Reply content is required' });
 
@@ -157,13 +197,38 @@ exports.replyToComment = async (req, res) => {
       threadId: parentComment.threadId,
       parentCommentId: commentId,
       depth: (parentComment.depth || 0) + 1,
-      mentions: mentionedPersonaIds, // ✅
+      mentions: mentionedPersonaIds,
     });
 
     await Comment.updateOne({ _id: commentId }, { $inc: { replyCount: 1 } });
-
-    // ✅ THIS is what you were missing:
     await Thread.findByIdAndUpdate(parentComment.threadId, { $inc: { commentCount: 1 } });
+
+    const parentAuthorId = parentComment.authorPersona?.toString();
+    const threadAuthorId = thread.authorPersona?.toString();
+
+    // ✅ notify parent comment author (reply)
+    upsertNotification({
+      recipientPersonaId: parentComment.authorPersona,
+      actorPersonaId: ctx.activePersonaId,
+      type: 'reply',
+      groupKey: `reply:comment:${commentId}`,
+      entityType: 'comment',
+      entityId: commentId,
+      secondaryEntityId: reply._id,
+    }).catch(() => {});
+
+    // ✅ notify thread author as "comment" only if different from parent author
+    if (threadAuthorId && parentAuthorId && threadAuthorId !== parentAuthorId) {
+      upsertNotification({
+        recipientPersonaId: thread.authorPersona,
+        actorPersonaId: ctx.activePersonaId,
+        type: 'comment',
+        groupKey: `comment:thread:${parentComment.threadId}`,
+        entityType: 'thread',
+        entityId: parentComment.threadId,
+        secondaryEntityId: reply._id,
+      }).catch(() => {});
+    }
 
     const populatedReply = await Comment.findById(reply._id).populate(
       'authorPersona',
