@@ -7,6 +7,7 @@ const Conversation = require('../models/Conversation');
 const cloudinary = require('../config/cloudinary');
 const { Readable } = require('stream');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
+const { upsertNotification } = require('../utils/notifications'); // ✅ add
 
 // helper: determine if viewer <-> target are blocked either way
 const arePersonasBlockedEitherWay = async (viewerPersonaId, targetPersonaId) => {
@@ -350,6 +351,16 @@ exports.followPersonaByHandle = async (req, res) => {
       Persona.updateOne({ _id: viewerPersonaId }, { $addToSet: { following: target._id } }),
       Persona.updateOne({ _id: target._id }, { $addToSet: { followers: viewerPersonaId } }),
     ]);
+
+    // ✅ notification (aggregate)
+    upsertNotification({
+      recipientPersonaId: target._id,
+      actorPersonaId: viewerPersonaId,
+      type: 'follow',
+      groupKey: `follow:persona:${target._id}`,
+      entityType: 'persona',
+      entityId: target._id,
+    }).catch(() => {});
 
     return res.status(200).json({ success: true, message: 'Followed successfully', isFollowing: true });
   } catch (error) {

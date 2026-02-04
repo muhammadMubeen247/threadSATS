@@ -11,6 +11,7 @@ import Messages from './pages/Messages';
 import SuggestedUsersPage from './pages/SuggestedUsersPage';
 import TrendsPage from './pages/TrendsPage';
 import HashtagThreadsPage from './pages/HashtagThreadsPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import { useAuthStore } from '@/store/authStore';
@@ -128,6 +129,14 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <HashtagThreadsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <RequireAuth>
+            <NotificationsPage/>
           </RequireAuth>
         }
       />

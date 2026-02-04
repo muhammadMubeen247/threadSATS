@@ -7,6 +7,8 @@ const { getViewerContext, assertAnonConfigured, ensurePersonasForUser } = requir
 const { resolveMentionsFromText } = require('../utils/mentions');
 const { extractHashtags } = require('../utils/hashtags'); // ✅ add
 
+const { upsertNotification } = require('../utils/notifications'); // ✅ add
+
 const formatPersona = (p) => ({
   id: p?._id,
   username: p?.handle, // keep key name "username" for frontend compatibility
@@ -113,8 +115,6 @@ exports.createThread = async (req, res) => {
 
     // ✅ mentions (optionally restrict by mode/type if you want)
     const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(content);
-
-    // ✅ hashtags (thread-only source of truth)
     const hashtags = extractHashtags(content);
 
     const thread = await Thread.create({
@@ -122,8 +122,25 @@ exports.createThread = async (req, res) => {
       authorPersona: ctx.activePersonaId,
       images: images || [],
       mentions: mentionedPersonaIds,
-      hashtags, // ✅
+      hashtags,
     });
+
+    // ✅ @mention notifications (aggregate per thread)
+    if (Array.isArray(mentionedPersonaIds) && mentionedPersonaIds.length) {
+      const unique = [...new Set(mentionedPersonaIds.map(String))];
+      Promise.allSettled(
+        unique.map((pid) =>
+          upsertNotification({
+            recipientPersonaId: pid,
+            actorPersonaId: ctx.activePersonaId,
+            type: 'mention',
+            groupKey: `mention:thread:${thread._id}`,
+            entityType: 'thread',
+            entityId: thread._id,
+          })
+        )
+      ).catch(() => {});
+    }
 
     await thread.populate('authorPersona', 'handle displayName profilePic coverPhoto bio rollNumber department batch type');
 
@@ -507,7 +524,7 @@ exports.toggleLike = async (req, res) => {
 
     const personaId = ctx.activePersonaId;
 
-    // ✅ Try unlike first (only if currently liked)
+    // ✅ Try unlike first (only if currently liked) — ignore unlikes for notifications
     const unliked = await Thread.findOneAndUpdate(
       { _id: threadId, isDeleted: false, likes: personaId },
       { $pull: { likes: personaId }, $inc: { likesCount: -1 } },
@@ -528,11 +545,21 @@ exports.toggleLike = async (req, res) => {
       { _id: threadId, isDeleted: false, likes: { $ne: personaId } },
       { $addToSet: { likes: personaId }, $inc: { likesCount: 1 } },
       { new: true }
-    ).select('likesCount');
+    ).select('likesCount authorPersona');
 
     if (!liked) {
       return res.status(404).json({ success: false, message: 'Thread not found' });
     }
+
+    // ✅ notification (aggregate) — fire and forget
+    upsertNotification({
+      recipientPersonaId: liked.authorPersona,
+      actorPersonaId: personaId,
+      type: 'like',
+      groupKey: `like:thread:${threadId}`,
+      entityType: 'thread',
+      entityId: threadId,
+    }).catch((e) => console.error('notif upsert failed (like):', e));
 
     return res.status(200).json({
       success: true,
@@ -559,9 +586,9 @@ exports.toggleRepost = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
-    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id repostCount type');
+    const original = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id repostCount type authorPersona');
     if (!original) return res.status(404).json({ success: false, message: 'Thread not found' });
-    if (original.type==='repost') return res.status(400).json({success: false, message: 'Cannot repost a repost'});
+    if (original.type === 'repost') return res.status(400).json({ success: false, message: 'Cannot repost a repost' });
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
@@ -595,6 +622,17 @@ exports.toggleRepost = async (req, res) => {
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
 
+    // ✅ notification (aggregate) — only when repost is created
+    upsertNotification({
+      recipientPersonaId: original.authorPersona,
+      actorPersonaId: ctx.activePersonaId,
+      type: 'repost',
+      groupKey: `repost:thread:${threadId}`,
+      entityType: 'thread',
+      entityId: threadId,
+      secondaryEntityId: repost._id,
+    }).catch((e) => console.error('notif upsert failed (repost):', e));
+
     return res.status(201).json({ success: true, message: 'Reposted', isReposted: true, repostId: repost._id });
   } catch (error) {
     if (error?.code === 11000) return res.status(400).json({ success: false, message: 'Already reposted' });
@@ -617,10 +655,10 @@ exports.createQuoteRepost = async (req, res) => {
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Quote content is required' });
 
-    const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id');
+    const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id type authorPersona');
     if (!target) return res.status(404).json({ success: false, message: 'Thread not found' });
-    
-    if (target.type==='repost') return res.status(400).json({success:false, message: 'Cannot quote a repost'});
+
+    if (target.type === 'repost') return res.status(400).json({ success: false, message: 'Cannot quote a repost' });
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
@@ -630,7 +668,6 @@ exports.createQuoteRepost = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
-    // ✅ hashtags for quote content too
     const hashtags = extractHashtags(text);
 
     const quote = await Thread.create({
@@ -639,10 +676,21 @@ exports.createQuoteRepost = async (req, res) => {
       authorPersona: ctx.activePersonaId,
       content: text,
       images: [],
-      hashtags, // ✅
+      hashtags,
     });
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });
+
+    // ✅ notification (aggregate)
+    upsertNotification({
+      recipientPersonaId: target.authorPersona,
+      actorPersonaId: ctx.activePersonaId,
+      type: 'quote',
+      groupKey: `quote:thread:${threadId}`,
+      entityType: 'thread',
+      entityId: threadId,
+      secondaryEntityId: quote._id,
+    }).catch((e) => console.error('notif upsert failed (quote):', e));
 
     await quote.populate('authorPersona', 'handle displayName profilePic rollNumber department batch type');
     await quote.populate({

@@ -21,12 +21,15 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 
-import { connectSocket, disconnectSocket } from '@/socket/client';
+import { connectSocket, disconnectSocket, getSocket } from '@/socket/client';
+import { useNotificationsStore } from '@/store/notificationsStore';
 
 export default function Navbar() {
   const navigate = useNavigate();
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
+
+  const { unread, setUnread, upsertFromSocket } = useNotificationsStore();
 
   // ✅ single socket lifecycle effect:
   // - connect while logged in
@@ -247,6 +250,44 @@ export default function Navbar() {
     }
   };
 
+  // ✅ load unread once logged in (and when persona mode changes)
+  useEffect(() => {
+    const run = async () => {
+      if (!user) return;
+      try {
+        const res = await api.get('/notifications/unread-count');
+        if (typeof res?.unread === 'number') setUnread(res.unread);
+      } catch {
+        // ignore
+      }
+    };
+    run();
+  }, [user, activeMode, setUnread]);
+
+  // ✅ realtime listeners
+  useEffect(() => {
+    if (!user) return;
+
+    const socket = getSocket() || connectSocket();
+
+    const onUnread = (payload) => {
+      if (typeof payload?.unread === 'number') setUnread(payload.unread);
+    };
+
+    const onNew = (payload) => {
+      const n = payload?.notification;
+      if (n?._id) upsertFromSocket(n);
+    };
+
+    socket.on('notif:unread', onUnread);
+    socket.on('notif:new', onNew);
+
+    return () => {
+      socket.off('notif:unread', onUnread);
+      socket.off('notif:new', onNew);
+    };
+  }, [user, setUnread, upsertFromSocket]);
+
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between px-4">
@@ -352,9 +393,21 @@ export default function Navbar() {
             </div>
           )}
 
-          <Button variant="ghost" size="icon" className="relative">
+          {/* ✅ Bell → /notifications */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative"
+            onClick={() => navigate('/notifications')}
+            aria-label="Notifications"
+          >
             <Bell className="h-5 w-5" />
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+
+            {unread > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[11px] leading-5 text-center">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            ) : null}
           </Button>
 
           <DropdownMenu>
