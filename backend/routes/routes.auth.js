@@ -7,13 +7,15 @@ const{
     resendOTP,
     login,
     logout,
-    getMe
+    getMe,
+    changePassword
 } = require('../controllers/controllers.auth');
 
 const {
     signupValidation,
     loginValidation,
     otpValidation,
+    changePasswordValidation,
     validate
 } = require('../middleware/validation');
 
@@ -28,5 +30,6 @@ router.post('/login', loginValidation, validate, login);
 //Protected Routes
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
+router.post('/change-password', protect, changePasswordValidation, validate, changePassword);
 
 module.exports = router;

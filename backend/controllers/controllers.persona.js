@@ -1381,3 +1381,45 @@ exports.getSuggestedPersonas = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
+
+// ✅ GET /api/personas/me/blocked (auth)
+// Returns personas blocked by the viewer's ACTIVE persona
+exports.getMyBlockedPersonas = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const viewerPersonaId = ctx.activePersonaId;
+    if (!viewerPersonaId) {
+      return res.status(400).json({ success: false, message: 'Active persona not found' });
+    }
+
+    const me = await Persona.findById(viewerPersonaId).select('blocked').lean();
+    const blockedIds = (me?.blocked || []).map((id) => id.toString());
+
+    if (!blockedIds.length) {
+      return res.status(200).json({ success: true, count: 0, results: [] });
+    }
+
+    const docs = await Persona.find({ _id: { $in: blockedIds } })
+      .select('_id handle displayName profilePic type rollNumber')
+      .sort({ handle: 1 })
+      .lean();
+
+    const results = docs.map((p) => ({
+      id: p._id,
+      type: p.type,
+      handle: p.handle,
+      username: p.handle, // frontend compatibility
+      displayName: p.displayName || p.handle,
+      profilePic: p.profilePic || '',
+      rollNumber: p.type === 'public' ? p.rollNumber || '' : '',
+      isBlocked: true,
+    }));
+
+    return res.status(200).json({ success: true, count: results.length, results });
+  } catch (error) {
+    console.error('getMyBlockedPersonas error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};

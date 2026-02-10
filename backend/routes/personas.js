@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 
-const { param, body, validationResult } = require('express-validator'); // ✅ add
+const { param, body, validationResult } = require('express-validator');
 const { protect } = require('../middleware/middleware.auth');
-const { uploadSingle, handleUploadError } = require('../middleware/upload'); // ✅ add
+const { uploadSingle, handleUploadError } = require('../middleware/upload');
 
 const {
   getPersonaProfileByHandle,
@@ -11,6 +11,7 @@ const {
   unfollowPersonaByHandle,
   blockPersonaByHandle,
   unblockPersonaByHandle,
+  getMyBlockedPersonas, // ✅ already imported
   getPersonaThreadsByHandle,
   getPersonaLikedThreadsByHandle,
   getPersonaRepliesByHandle,
@@ -22,7 +23,6 @@ const {
 
   searchPersonas,
 
-  // ✅ add these
   getPersonaFollowersByHandle,
   getPersonaFollowingByHandle,
   getSuggestedPersonas,
@@ -111,7 +111,10 @@ const bioUpdateValidation = [
     .withMessage('bio cannot exceed 150 characters'),
 ];
 
-// ✅ search (public/optional-auth)
+// ✅ blocked list for ACTIVE persona (protected)
+router.get('/me/blocked', protect, getMyBlockedPersonas);
+
+// ✅ search
 router.get('/search', protect, searchPersonas);
 
 // public/optional-auth

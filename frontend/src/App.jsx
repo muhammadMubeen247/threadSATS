@@ -12,6 +12,7 @@ import SuggestedUsersPage from './pages/SuggestedUsersPage';
 import TrendsPage from './pages/TrendsPage';
 import HashtagThreadsPage from './pages/HashtagThreadsPage';
 import NotificationsPage from './pages/NotificationsPage';
+import Settings from './pages/Settings'; // ✅ add
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import { useAuthStore } from '@/store/authStore';
@@ -62,6 +63,17 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
+
+      {/* ✅ add settings route */}
+      <Route
+        path="settings"
+        element={
+          <RequireAuth>
+            <Settings />
+          </RequireAuth>
+        }
+      />
+
       <Route
         path="thread/:threadId"
         element={
@@ -106,6 +118,7 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
+
       <Route
         path="/suggested-users"
         element={
@@ -122,8 +135,6 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
-
-      {/* ✅ FIX: param name + remove leading slash for consistency */}
       <Route
         path="hashtag/:tag"
         element={
@@ -136,7 +147,7 @@ function AppRoutes() {
         path="/notifications"
         element={
           <RequireAuth>
-            <NotificationsPage/>
+            <NotificationsPage />
           </RequireAuth>
         }
       />

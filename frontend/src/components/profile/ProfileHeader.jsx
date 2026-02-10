@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, MapPin, InfoIcon, MessageCircle } from 'lucide-react';
+import { Camera, MapPin, InfoIcon, MessageCircle, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import api from '@/api/axios';
@@ -13,9 +13,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useLocation, useNavigate } from 'react-router-dom';
-import EditProfileModal from '@/components/profile/EditProfileModal'; // ✅ add
-import PersonaConnectionsModal from '@/components/profile/PersonaConnectionsModal'; // ✅ add
-import { useAuthStore } from '@/store/authStore'; // ✅ add
+import EditProfileModal from '@/components/profile/EditProfileModal';
+import PersonaConnectionsModal from '@/components/profile/PersonaConnectionsModal';
+import { useAuthStore } from '@/store/authStore';
 
 export default function ProfileHeader(props) {
   const { profile, onFollowToggle, onProfilePicUpdated } = props;
@@ -24,6 +24,17 @@ export default function ProfileHeader(props) {
   const [followersCount, setFollowersCount] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [followError, setFollowError] = useState('');
+
+  // ✅ block state
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockError, setBlockError] = useState('');
+  const [confirmBlockOpen, setConfirmBlockOpen] = useState(false);
+  const [confirmUnblockOpen, setConfirmUnblockOpen] = useState(false);
+
+  // ✅ actions dropdown (simple custom)
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef(null);
 
   // ✅ DM state
   const [isDmBusy, setIsDmBusy] = useState(false);
@@ -40,11 +51,11 @@ export default function ProfileHeader(props) {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
-  const [isEditOpen, setIsEditOpen] = useState(false); // ✅ add (since you render the modal)
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   // ✅ connections modal state
   const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [connectionsMode, setConnectionsMode] = useState('followers'); // 'followers' | 'following'
+  const [connectionsMode, setConnectionsMode] = useState('followers');
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,18 +66,42 @@ export default function ProfileHeader(props) {
   useEffect(() => {
     setIsFollowing(Boolean(profile?.isFollowing));
     setFollowersCount(Number(profile?.followersCount ?? 0));
-  }, [profile?.isFollowing, profile?.followersCount]);
+    setIsBlocked(Boolean(profile?.isBlocked)); // ✅
+  }, [profile?.isFollowing, profile?.followersCount, profile?.isBlocked]);
+
+  // close actions dropdown on outside click / escape
+  useEffect(() => {
+    if (!actionsOpen) return;
+
+    const onDown = (e) => {
+      if (e.key === 'Escape') setActionsOpen(false);
+    };
+    const onClick = (e) => {
+      if (!actionsRef.current) return;
+      if (!actionsRef.current.contains(e.target)) setActionsOpen(false);
+    };
+
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('mousedown', onClick);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('mousedown', onClick);
+    };
+  }, [actionsOpen]);
 
   // ✅ derive edit permissions from backend
   const isActivePersona = Boolean(profile?.isActivePersona);
 
-  // ✅ DM allowed only between same persona types
+  // ✅ DM allowed only between same persona types + not blocked
   const activeType = activeMode === 'anon' ? 'anon' : 'public';
   const canMessage =
     !isActivePersona &&
+    !isBlocked &&
     Boolean(profile?.username) &&
     Boolean(profile?.type) &&
     profile.type === activeType;
+
+  const targetHandle = String(profile?.username || profile?.handle || '').trim();
 
   const handleMessageClick = async () => {
     if (!canMessage || isDmBusy) return;
@@ -75,7 +110,7 @@ export default function ProfileHeader(props) {
     setIsDmBusy(true);
     try {
       const res = await api.post('/dm/conversations', {
-        targetHandle: profile.username, // username == persona handle in your UI
+        targetHandle: profile.username,
       });
 
       const id = res?.conversation?.id;
@@ -91,7 +126,6 @@ export default function ProfileHeader(props) {
   };
 
   const openPicPicker = () => {
-    // ✅ only active persona can edit its media
     if (!isActivePersona || isUploadingPic) return;
     setPicError('');
     fileInputRef.current?.click();
@@ -104,7 +138,6 @@ export default function ProfileHeader(props) {
 
     setPicError('');
 
-    // preview and open crop modal
     const objectUrl = URL.createObjectURL(file);
     setImageSrc(objectUrl);
     setCrop({ x: 0, y: 0 });
@@ -134,7 +167,7 @@ export default function ProfileHeader(props) {
       const file = new File([blob], 'profile.jpg', { type: 'image/jpeg' });
 
       const form = new FormData();
-      form.append('image', file); // must match backend field name
+      form.append('image', file);
 
       const res = await api.put('/users/me/profile-pic', form);
 
@@ -150,7 +183,53 @@ export default function ProfileHeader(props) {
     }
   };
 
+  const doBlock = async () => {
+    if (!targetHandle || blockBusy) return;
+
+    setBlockError('');
+    setBlockBusy(true);
+    try {
+      await api.post(`/personas/${targetHandle}/block`);
+
+      // reflect immediately
+      if (isFollowing) {
+        setIsFollowing(false);
+        setFollowersCount((c) => Math.max(0, Number(c || 0) - 1));
+      }
+      setIsBlocked(true);
+
+      setConfirmBlockOpen(false);
+      setActionsOpen(false);
+    } catch (e) {
+      setBlockError(e?.response?.data?.message || e?.message || 'Failed to block');
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
+  const doUnblock = async () => {
+    if (!targetHandle || blockBusy) return;
+
+    setBlockError('');
+    setBlockBusy(true);
+    try {
+      await api.delete(`/personas/${targetHandle}/block`);
+      setIsBlocked(false);
+      setConfirmUnblockOpen(false);
+    } catch (e) {
+      setBlockError(e?.response?.data?.message || e?.message || 'Failed to unblock');
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
   const handleFollowClick = async () => {
+    // ✅ Follow button becomes Unblock when blocked
+    if (isBlocked) {
+      setConfirmUnblockOpen(true);
+      return;
+    }
+
     if (!profile?.id || isBusy) return;
 
     setFollowError('');
@@ -173,14 +252,9 @@ export default function ProfileHeader(props) {
     }
   };
 
-  // wherever you render EditProfileModal today, update its onUpdated handler like this:
   const handleProfileUpdated = (patch) => {
-    // 1) keep your existing update behavior
-    props?.onProfileUpdated?.(patch); // if you already forward updates upward
-    // OR if ProfileHeader owns the profile state, keep your existing setProfile merge here:
-    // setProfile((prev) => ({ ...prev, ...patch }));
+    props?.onProfileUpdated?.(patch);
 
-    // 2) ✅ if handle changed and user is on "/@oldhandle", move them to "/@newhandle"
     if (patch?.username && typeof patch.username === 'string') {
       const newHandle = patch.username.trim();
       if (newHandle && location.pathname.startsWith('/@')) {
@@ -189,7 +263,6 @@ export default function ProfileHeader(props) {
     }
   };
 
-  // Ensure the component returns JSX (even a minimal placeholder)
   if (!profile) return null;
 
   const openFollowers = () => {
@@ -205,7 +278,6 @@ export default function ProfileHeader(props) {
   return (
     <>
       <div className="border-b bg-card">
-        {/* Cover Photo */}
         <div className="relative h-32 sm:h-40 md:h-48 overflow-hidden bg-gradient-to-r from-primary/20 to-primary/10">
           {profile?.coverPhoto ? (
             <img
@@ -215,14 +287,10 @@ export default function ProfileHeader(props) {
               loading="lazy"
             />
           ) : null}
-
-          {/* subtle overlay to keep text/edges nice even with bright images */}
           <div className="absolute inset-0 bg-black/10" />
         </div>
 
-        {/* Profile Info */}
         <div className="px-6 pb-6">
-          {/* Avatar & Action Button */}
           <div className="flex justify-between items-start -mt-16 mb-4">
             <div className="relative">
               <Avatar className="w-32 h-32 border-4 border-background">
@@ -232,7 +300,6 @@ export default function ProfileHeader(props) {
                 </AvatarFallback>
               </Avatar>
 
-              {/* Hidden input */}
               {isActivePersona && (
                 <input
                   ref={fileInputRef}
@@ -242,48 +309,11 @@ export default function ProfileHeader(props) {
                   onChange={onPickProfilePic}
                 />
               )}
-
-              {/* Camera button */}
-              {/* {isOwnProfile && (
-                <button
-                  type="button"
-                  onClick={openPicPicker}
-                  disabled={isUploadingPic}
-                  className="absolute bottom-0 right-0 p-2 bg-primary rounded-full hover:bg-primary/90 transition disabled:opacity-60"
-                  title="Update profile picture"
-                >
-                  {isUploadingPic ? (
-                    <span className="block h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                  ) : (
-                    <Camera className="w-4 h-4" />
-                  )}
-                </button>
-              )} */}
             </div>
-
-            {/* <div className="mt-4">
-              {isOwnProfile ? (
-                <Button variant="outline" type="button" onClick={onEditProfile}>
-                  Edit Profile
-                </Button>
-              ) : (
-                <Button
-                  variant={isFollowing ? 'outline' : 'default'}
-                  onClick={handleFollowClick}
-                  disabled={isBusy}
-                  type="button"
-                >
-                  {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
-                </Button>
-              )}
-            </div> */}
           </div>
-          
 
-          {/* pic upload error */}
           {picError ? <p className="mb-3 text-sm text-red-500">{picError}</p> : null}
 
-          {/* ✅ Crop modal */}
           <Dialog open={isCropOpen} onOpenChange={(open) => (!open ? closeCropModal() : null)}>
             <DialogContent className="max-w-xl">
               <DialogHeader>
@@ -296,8 +326,8 @@ export default function ProfileHeader(props) {
                     image={imageSrc}
                     crop={crop}
                     zoom={zoom}
-                    aspect={1} // ✅ square avatar
-                    cropShape="round" // optional: round UI like avatars
+                    aspect={1}
+                    cropShape="round"
                     showGrid={false}
                     onCropChange={setCrop}
                     onZoomChange={setZoom}
@@ -330,18 +360,12 @@ export default function ProfileHeader(props) {
             </DialogContent>
           </Dialog>
 
-          {/* User Info */}
           <div className="flex justify-between items-center">
             <div className="space-y-2">
               <div>
                 <h1 className="text-2xl font-bold">@{profile?.username}</h1>
                 <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  {/* <MapPin className="w-4 h-4" /> */}
-                  {/* <InfoIcon className="w-4 h-4" /> */}
-                  <span>
-                    {/* {profile?.department} • {profile?.rollNumber} */}
-                    {profile?.rollNumber}
-                  </span>
+                  <span>{profile?.rollNumber}</span>
                 </div>
               </div>
 
@@ -364,6 +388,7 @@ export default function ProfileHeader(props) {
                 </div>
               </div>
             </div>
+
             <div className="mb-12 flex items-center gap-2">
               {isActivePersona ? (
                 <Button variant="outline" type="button" onClick={() => setIsEditOpen(true)}>
@@ -372,36 +397,69 @@ export default function ProfileHeader(props) {
               ) : (
                 <>
                   <Button
-                    variant={isFollowing ? 'outline' : 'default'}
+                    variant={isBlocked ? 'destructive' : (isFollowing ? 'outline' : 'default')}
                     onClick={handleFollowClick}
-                    disabled={isBusy}
+                    disabled={isBusy || blockBusy}
                     type="button"
                   >
-                    {isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
+                    {blockBusy ? 'Please wait...' : isBlocked ? 'Unblock' : isBusy ? 'Please wait...' : isFollowing ? 'Following' : 'Follow'}
                   </Button>
 
-                  {/* ✅ Message button to the right of Follow/Unfollow */}
-                  {canMessage ? (
+                  {/* ✅ Dropdown next to Follow (only when NOT blocked) */}
+                  {!isBlocked ? (
+                    <div className="relative" ref={actionsRef}>
                       <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleMessageClick}
-                        disabled={isDmBusy}
                         type="button"
-                        className="  h-10 w-10 rounded-full 
-  flex items-center justify-center
-  bg-primary text-primary-foreground
-  hover:bg-primary/90
-  shadow-sm
-  transition"
-                        title="Send message"
+                        size="icon"
+                        onClick={() => setActionsOpen((v) => !v)}
+                        aria-haspopup="menu"
+                        aria-expanded={actionsOpen}
+                        title="More"
+                        className={[
+                          'h-10 w-10 rounded-full',
+                          'bg-primary text-primary-foreground',
+                          'hover:bg-primary/90',
+                          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                          'shadow-sm transition',
+                        ].join(' ')}
                       >
-                        {isDmBusy ? (
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                        ) : (
-                          <MessageCircle className="h-5 w-5" />
-                        )}
+                        <MoreVertical className="h-5 w-5" />
                       </Button>
+
+                      {actionsOpen ? (
+                        <div className="absolute right-0 mt-2 w-44 rounded-md border bg-background shadow-md z-50 overflow-hidden">
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent text-red-600"
+                            onClick={() => {
+                              setActionsOpen(false);
+                              setConfirmBlockOpen(true);
+                            }}
+                          >
+                            Block @{profile?.username}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* ✅ Message button */}
+                  {canMessage ? (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleMessageClick}
+                      disabled={isDmBusy || blockBusy}
+                      type="button"
+                      className="h-10 w-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm transition"
+                      title="Send message"
+                    >
+                      {isDmBusy ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                      ) : (
+                        <MessageCircle className="h-5 w-5" />
+                      )}
+                    </Button>
                   ) : null}
                 </>
               )}
@@ -410,10 +468,50 @@ export default function ProfileHeader(props) {
 
           {followError ? <p className="mt-2 text-sm text-red-500">{followError}</p> : null}
           {dmError ? <p className="mt-2 text-sm text-red-500">{dmError}</p> : null}
+          {blockError ? <p className="mt-2 text-sm text-red-500">{blockError}</p> : null}
         </div>
       </div>
 
-      {/* ✅ modal */}
+      {/* ✅ Confirm Block */}
+      <Dialog open={confirmBlockOpen} onOpenChange={setConfirmBlockOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Block @{profile?.username}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            You won’t be able to view this profile again unless you unblock.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmBlockOpen(false)} disabled={blockBusy}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={doBlock} disabled={blockBusy}>
+              {blockBusy ? 'Blocking…' : 'Block'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ✅ Confirm Unblock */}
+      <Dialog open={confirmUnblockOpen} onOpenChange={setConfirmUnblockOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Unblock @{profile?.username}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            You’ll be able to view this profile again.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmUnblockOpen(false)} disabled={blockBusy}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={doUnblock} disabled={blockBusy}>
+              {blockBusy ? 'Unblocking…' : 'Unblock'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <EditProfileModal
         open={isEditOpen}
         onClose={() => setIsEditOpen(false)}
@@ -421,11 +519,10 @@ export default function ProfileHeader(props) {
         onUpdated={handleProfileUpdated}
       />
 
-      {/* ✅ followers/following modal */}
       <PersonaConnectionsModal
         open={connectionsOpen}
         onOpenChange={setConnectionsOpen}
-        handle={profile?.username} // username == persona handle in your UI
+        handle={profile?.username}
         mode={connectionsMode}
       />
     </>

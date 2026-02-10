@@ -8,13 +8,12 @@ import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
 import SuggestedUsers from '@/components/layout/SuggestedUsers';
 
-// ✅ new persona tabs
 import PersonaThreadsTab from '@/components/profile/PersonaThreadsTab';
 import PersonaRepliesTab from '@/components/profile/PersonaRepliesTab';
 import PersonaLikesTab from '@/components/profile/PersonaLikesTab';
 
 export default function ProfilePage() {
-  const { handle } = useParams(); // "/@hanekawa" => handle = "@hanekawa"
+  const { handle } = useParams();
   const navigate = useNavigate();
 
   const { isAuthenticated } = useAuthStore();
@@ -24,7 +23,7 @@ export default function ProfilePage() {
     return handle.startsWith('@') ? handle.slice(1).trim().toLowerCase() : '';
   }, [handle]);
 
-  const [profile, setProfile] = useState(null); // will hold persona profile object
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -35,9 +34,16 @@ export default function ProfilePage() {
         setError(null);
 
         const res = await api.get(`/personas/${personaHandle}/profile`);
-        // backend returns: { success, persona: {...} }
         setProfile(res.persona);
       } catch (err) {
+        const status = err?.response?.status;
+
+        // ✅ HARD restriction: if blocked either-way, backend returns 403. Redirect away.
+        if (status === 403) {
+          navigate('/home', { replace: true });
+          return;
+        }
+
         setError(err?.response?.data?.message || err?.message || 'Failed to load profile');
       } finally {
         setLoading(false);
@@ -45,7 +51,7 @@ export default function ProfilePage() {
     };
 
     if (personaHandle) fetchPersonaProfile();
-  }, [personaHandle]);
+  }, [personaHandle, navigate]);
 
   if (!handle?.startsWith('@')) {
     return <Navigate to="/home" replace />;

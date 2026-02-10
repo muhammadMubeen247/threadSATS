@@ -49,6 +49,23 @@ exports.otpValidation = [
     .withMessage('OTP must be numeric'),
 ];
 
+// Validation rules for change password
+exports.changePasswordValidation = [
+  body('oldPassword')
+    .notEmpty()
+    .withMessage('Old password is required'),
+
+  body('newPassword')
+    .isLength({ min: 6, max: 128 })
+    .withMessage('New password must be between 6 and 128 characters')
+    .custom((value, { req }) => {
+      if (value === req.body.oldPassword) {
+        throw new Error('New password must be different from old password');
+      }
+      return true;
+    }),
+];
+
 // Middleware to handle validation errors
 exports.validate = (req, res, next) => {
   const errors = validationResult(req);

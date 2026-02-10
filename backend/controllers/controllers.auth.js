@@ -391,3 +391,43 @@ exports.getMe = async (req, res) => {
     });
   }
 };
+
+// @desc    Change password (requires old password)
+// @route   POST /api/auth/change-password
+// @access  Private
+exports.changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    // protect middleware should set req.user
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const ok = await bcrypt.compare(oldPassword, user.password);
+    if (!ok) {
+      return res.status(401).json({ success: false, message: 'Old password is incorrect' });
+    }
+
+    // newPassword != oldPassword is already enforced by validator, but keep a safe-guard
+    const same = await bcrypt.compare(newPassword, user.password);
+    if (same) {
+      return res.status(400).json({ success: false, message: 'New password must be different from old password' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    return res.status(200).json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('changePassword error:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
