@@ -60,7 +60,8 @@ export default function Login() {
         navigate('/home');
       }
     } catch (err) {
-      setError(err?.response?.data?.message || err?.message || 'Login failed');
+      // ✅ api interceptor sets err.userMessage
+      setError(err?.userMessage || err?.message || 'Login failed');
     } finally {
       setIsLoading(false);
     }

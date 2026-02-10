@@ -66,6 +66,46 @@ exports.changePasswordValidation = [
     }),
 ];
 
+// Validation rules for forgot password
+exports.forgotPasswordValidation = [
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Valid email is required')
+    .normalizeEmail(),
+];
+
+// Validation rules for reset password
+exports.resetPasswordValidation = [
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Valid email is required')
+    .normalizeEmail(),
+  body('otp')
+    .trim()
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('New password must be at least 6 characters'),
+];
+
+// Validation rules for verify reset OTP
+exports.verifyResetOTPValidation = [
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Valid email is required')
+    .normalizeEmail(),
+  body('otp')
+    .trim()
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits')
+    .isNumeric()
+    .withMessage('OTP must be numeric'),
+];
+
 // Middleware to handle validation errors
 exports.validate = (req, res, next) => {
   const errors = validationResult(req);

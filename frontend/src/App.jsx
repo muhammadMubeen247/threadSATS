@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Signup from './pages/Signup';
 import VerifyOTP from './pages/VerifyOTP';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword'; // ✅ add
 import Home from './pages/Home';
 import ProfilePage from './pages/ProfilePage';
 import ThreadDetail from './pages/ThreadDetail';
@@ -53,6 +54,7 @@ function AppRoutes() {
       <Route path="signup" element={<Signup />} />
       <Route path="verify-otp" element={<VerifyOTP />} />
       <Route path="login" element={<Login />} />
+      <Route path="forgot-password" element={<ForgotPassword />} /> {/* ✅ add */}
 
       {/* protected */}
       <Route

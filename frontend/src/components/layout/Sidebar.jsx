@@ -28,7 +28,7 @@ export default function Sidebar({ onCreateThread }) {
     { name: 'Trends', icon: TrendingUp, path: '/trends' },
 
     // { name: 'Search', icon: Search, path: '/search' },
-    // { name: 'Settings', icon: Settings, path: '/settings' },
+    { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   return (
