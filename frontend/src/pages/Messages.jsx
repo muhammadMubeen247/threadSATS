@@ -118,7 +118,14 @@ function ConversationList({ conversations, activeId, onOpen, onBack }) {
   const list = trimmed ? remote : conversations;
 
   return (
-    <div className="h-[calc(100vh-64px)] border-r border-border bg-card/40">
+    <div
+      className={[
+        // ✅ account for Navbar (64px) + MobileBottomNav (80px)
+        'h-[calc(100dvh-64px-80px)] lg:h-[calc(100dvh-64px)]',
+        'border-r border-border bg-card/40',
+        'flex flex-col',
+      ].join(' ')}
+    >
       <div className="p-4">
         <div className="flex items-center gap-2">
           <button
@@ -150,7 +157,8 @@ function ConversationList({ conversations, activeId, onOpen, onBack }) {
         ) : null}
       </div>
 
-      <div className="px-2 pb-3 overflow-y-auto h-[calc(100vh-184px)]">
+      {/* ✅ use flex-1 instead of hard-coded vh calc */}
+      <div className="flex-1 px-2 pb-3 overflow-y-auto">
         <div className="space-y-1">
           {list.map((c) => (
             <ConversationRow key={c.id} convo={c} active={c.id === activeId} onOpen={onOpen} />
@@ -203,12 +211,13 @@ function MessageBubble({ mine, text, time, status }) {
   );
 }
 
-function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrReceived }) {
+function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrReceived, onBackToList }) {
   const socketRef = useRef(null);
 
   useEffect(() => {
     socketRef.current = connectSocket();
   }, []);
+
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -232,8 +241,6 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   const inputRef = useRef(null);
 
   const bottomRef = useRef(null);
-
-
 
   // ✅ insert emoji at cursor
   const insertEmoji = useCallback((emoji) => {
@@ -618,17 +625,36 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   }, [text, conversationId, sending, onSentOrReceived]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-background">
+    <div
+      className={[
+        // ✅ account for Navbar (64px) + MobileBottomNav (80px)
+        'h-[calc(100dvh-64px-80px)] lg:h-[calc(100dvh-60px)]',
+        'flex flex-col bg-background',
+      ].join(' ')}
+    >
       {/* Header */}
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
+            {/* ✅ mobile-only back to list */}
+            <button
+              type="button"
+              onClick={onBackToList}
+              className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-full hover:bg-muted/30"
+              title="Back to conversations"
+              aria-label="Back to conversations"
+            >
+              <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+            </button>
+
             <Avatar className="h-10 w-10">
               <AvatarImage
                 src={conversationMeta?.other?.profilePic || ''}
                 alt={conversationMeta?.other?.handle ? `@${conversationMeta.other.handle}` : 'User'}
               />
-              <AvatarFallback>{(conversationMeta?.other?.handle || '?')[0]?.toUpperCase()}</AvatarFallback>
+              <AvatarFallback>
+                {(conversationMeta?.other?.handle || '?')[0]?.toUpperCase()}
+              </AvatarFallback>
             </Avatar>
 
             <div className="min-w-0">
@@ -829,6 +855,38 @@ export default function Messages() {
 
   const [conversations, setConversations] = useState([]);
 
+  // ✅ add this: update conversation preview + move to top
+  const bumpConversation = useCallback((cid, msg) => {
+    if (!cid) return;
+
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => String(c.id) === String(cid));
+      if (idx === -1) return prev;
+
+      const existing = prev[idx];
+
+      const nextLastMessage = msg
+        ? {
+            _id: msg._id || msg.id,
+            text: msg.text,
+            createdAt: msg.createdAt || new Date().toISOString(),
+          }
+        : existing.lastMessage;
+
+      const updated = {
+        ...existing,
+        lastMessage: nextLastMessage,
+        updatedAt: (msg?.createdAt || existing.updatedAt || new Date().toISOString()),
+      };
+
+      // move to top
+      const copy = prev.slice();
+      copy.splice(idx, 1);
+      copy.unshift(updated);
+      return copy;
+    });
+  }, []);
+
   // ✅ fetch conversations ONLY when mode changes (no flicker on chat switch)
   useEffect(() => {
     let cancelled = false;
@@ -870,71 +928,46 @@ export default function Messages() {
     else navigate('/home');
   };
 
+  // ✅ mobile: back from chat -> inbox list
+  const backToList = () => navigate('/messages', { replace: true });
+
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === conversationId) || null,
     [conversations, conversationId]
   );
 
-  // update sidebar preview on send/receive
-  const bumpConversation = useCallback((id, msg) => {
-    setConversations((prev) => {
-      const idx = prev.findIndex((c) => c.id === id);
-      if (idx === -1) return prev;
-
-      const updated = {
-        ...prev[idx],
-        lastMessage: {
-          id: msg._id || msg.id,
-          text: msg.text,
-          createdAt: msg.createdAt,
-          senderPersonaId: msg.senderPersonaId,
-        },
-      };
-
-      return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
-    });
-  }, []);
-
-  // ✅ global dm:new_message listener (updates sidebar without refresh)
-  useEffect(() => {
-    const s = connectSocket();
-
-    const onAnyNew = (payload) => {
-      const id = payload?.conversationId;
-      const msg = payload?.message;
-      if (!id || !msg) return;
-
-      bumpConversation(id, msg);
-    };
-
-    s.on('dm:new_message', onAnyNew);
-    return () => s.off('dm:new_message', onAnyNew);
-  }, [bumpConversation, activeMode]);
+  const hasChatOpen = Boolean(conversationId);
 
   return (
     <>
       <Navbar />
 
-      <div className="grid grid-cols-[360px_1fr]">
-        <ConversationList
-          conversations={conversations}
-          activeId={conversationId}
-          onOpen={openConversation}
-          onBack={goBack}
-        />
-
-        {/* ✅ Show empty state until a conversation is opened */}
-        {!conversationId ? (
-          <EmptyChatPane />
-        ) : (
-          <ChatWindow
-            key={conversationId}
-            conversationId={conversationId}
-            myPersonaId={myPersonaId}
-            conversationMeta={activeConversation}
-            onSentOrReceived={bumpConversation}
+      <div className="lg:grid lg:grid-cols-[360px_1fr]">
+        {/* Left: conversation list */}
+        <div className={hasChatOpen ? 'hidden lg:block' : 'block'}>
+          <ConversationList
+            conversations={conversations}
+            activeId={conversationId}
+            onOpen={openConversation}
+            onBack={goBack}
           />
-        )}
+        </div>
+
+        {/* Right: chat pane */}
+        <div className={Boolean(conversationId) ? 'block' : 'hidden lg:block'}>
+          {!conversationId ? (
+            <EmptyChatPane />
+          ) : (
+            <ChatWindow
+              key={conversationId}
+              conversationId={conversationId}
+              myPersonaId={myPersonaId}
+              conversationMeta={activeConversation}
+              onSentOrReceived={bumpConversation} // ✅ now defined
+              onBackToList={backToList}
+            />
+          )}
+        </div>
       </div>
     </>
   );

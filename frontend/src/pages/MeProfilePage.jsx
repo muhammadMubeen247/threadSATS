@@ -95,7 +95,6 @@ export default function MeProfilePage() {
         setError('');
         const res = await api.get('/users/me/profile');
         setActiveMode(res.activeMode || 'public');
-        // map backend persona => ProfileHeader shape
         setProfile({
           id: res.persona.id,
           username: res.persona.username,
@@ -132,52 +131,66 @@ export default function MeProfilePage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <div className="container mx-auto flex flex-col lg:flex-row">
-        <aside className="hidden lg:block w-64 shrink-0">
-          <Sidebar onCreateThread={() => navigate('/home')} />
-        </aside>
+      <div className="flex">
+        <div className="hidden lg:block">
+          <Sidebar onCreateThread={() => window.dispatchEvent(new Event('thread:create'))} />
+        </div>
 
-        <main className="flex-1 min-h-[calc(100vh-4rem)] lg:border-x">
-          <ProfileHeader
-            profile={profile}
-            isOwnProfile={true}
-            onFollowToggle={() => {}}
-            onEditProfile={() => navigate('/home')} // keep simple for now
-            onProfilePicUpdated={() => {}}
-          />
+        <div className="flex-1 flex justify-center">
+          <main className="flex w-full max-w-6xl gap-6 px-4 py-4 sm:px-6 sm:py-6">
+            <section className="flex-1 min-w-0 lg:border-x">
+              <ProfileHeader
+                profile={profile}
+                isOwnProfile={true}
+                onFollowToggle={() => {}}
+                onEditProfile={() => navigate('/home')}
+                onProfilePicUpdated={() => {}}
+              />
 
-          <div className="px-6 pt-3 text-xs text-muted-foreground">
-            Viewing: <span className="font-medium">{activeMode === 'anon' ? 'Anonymous' : 'Public'}</span>
-          </div>
+              <div className="px-6 pt-3 text-xs text-muted-foreground">
+                Viewing:{' '}
+                <span className="font-medium">{activeMode === 'anon' ? 'Anonymous' : 'Public'}</span>
+              </div>
 
-          <Tabs defaultValue="threads" className="mt-4">
-            <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
-              <TabsTrigger value="threads" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Threads
-              </TabsTrigger>
-              <TabsTrigger value="replies" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Replies
-              </TabsTrigger>
-              <TabsTrigger value="likes" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Likes
-              </TabsTrigger>
-            </TabsList>
+              <Tabs defaultValue="threads" className="mt-4">
+                <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
+                  <TabsTrigger
+                    value="threads"
+                    className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3"
+                  >
+                    Threads
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="replies"
+                    className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3"
+                  >
+                    Replies
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="likes"
+                    className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3"
+                  >
+                    Likes
+                  </TabsTrigger>
+                </TabsList>
 
-            <TabsContent value="threads" className="mt-0">
-              <MyThreadsTab />
-            </TabsContent>
-            <TabsContent value="replies" className="mt-0">
-              <MyRepliesTab />
-            </TabsContent>
-            <TabsContent value="likes" className="mt-0">
-              <MyLikesTab />
-            </TabsContent>
-          </Tabs>
-        </main>
+                <TabsContent value="threads" className="mt-0">
+                  <MyThreadsTab />
+                </TabsContent>
+                <TabsContent value="replies" className="mt-0">
+                  <MyRepliesTab />
+                </TabsContent>
+                <TabsContent value="likes" className="mt-0">
+                  <MyLikesTab />
+                </TabsContent>
+              </Tabs>
+            </section>
 
-        <aside className="hidden xl:block w-80 shrink-0">
-          <SuggestedUsers />
-        </aside>
+            <aside className="hidden xl:block w-80 shrink-0">
+              <SuggestedUsers />
+            </aside>
+          </main>
+        </div>
       </div>
     </div>
   );

@@ -27,30 +27,23 @@ export default function HashtagThreadsPage() {
 
   const sentinelRef = useRef(null);
 
-  const hashtag = useMemo(
-    () => String(tag || '').toLowerCase(),
-    [tag]
-  );
+  const hashtag = useMemo(() => String(tag || '').toLowerCase(), [tag]);
 
   const loadPage = async (sort, nextPage) => {
     const isTop = sort === 'top';
     const isLoading = isTop ? topLoading : latestLoading;
 
     if (isLoading) return;
-
     isTop ? setTopLoading(true) : setLatestLoading(true);
 
     try {
-      const res = await api.get(
-        `/threads/hashtag/${encodeURIComponent(tag)}`,
-        {
-          params: {
-            page: nextPage,
-            limit: 10,
-            sort: isTop ? 'top' : 'new',
-          },
-        }
-      );
+      const res = await api.get(`/threads/hashtag/${encodeURIComponent(tag)}`, {
+        params: {
+          page: nextPage,
+          limit: 10,
+          sort: isTop ? 'top' : 'new',
+        },
+      });
 
       const results = Array.isArray(res?.threads) ? res.threads : [];
 
@@ -62,7 +55,6 @@ export default function HashtagThreadsPage() {
           const id = String(r.id || r._id);
           if (!seen.has(id)) merged.push(r);
         }
-
         return merged;
       };
 
@@ -82,7 +74,6 @@ export default function HashtagThreadsPage() {
     }
   };
 
-  // Reset on hashtag change
   useEffect(() => {
     setActiveTab('top');
 
@@ -100,21 +91,15 @@ export default function HashtagThreadsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tag]);
 
-  // Ensure active tab has data
   useEffect(() => {
     if (activeTab === 'top') {
-      if (!topThreads.length && topHasMore && !topLoading) {
-        loadPage('top', 1);
-      }
+      if (!topThreads.length && topHasMore && !topLoading) loadPage('top', 1);
     } else {
-      if (!latestThreads.length && latestHasMore && !latestLoading) {
-        loadPage('latest', 1);
-      }
+      if (!latestThreads.length && latestHasMore && !latestLoading) loadPage('latest', 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // Infinite scroll
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
@@ -136,71 +121,51 @@ export default function HashtagThreadsPage() {
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [
-    activeTab,
-    topPage,
-    topHasMore,
-    topLoading,
-    latestPage,
-    latestHasMore,
-    latestLoading,
-  ]);
+  }, [activeTab, topPage, topHasMore, topLoading, latestPage, latestHasMore, latestLoading]);
 
   const removeFromBoth = (id) => {
-    setTopThreads((prev) =>
-      prev.filter((x) => (x.id || x._id) !== id)
-    );
-    setLatestThreads((prev) =>
-      prev.filter((x) => (x.id || x._id) !== id)
-    );
+    setTopThreads((prev) => prev.filter((x) => (x.id || x._id) !== id));
+    setLatestThreads((prev) => prev.filter((x) => (x.id || x._id) !== id));
   };
 
   const updateInBoth = (key, patch) => {
-    setTopThreads((prev) =>
-      prev.map((x) =>
-        (x.id || x._id) === key ? { ...x, ...patch } : x
-      )
-    );
+    setTopThreads((prev) => prev.map((x) => ((x.id || x._id) === key ? { ...x, ...patch } : x)));
     setLatestThreads((prev) =>
-      prev.map((x) =>
-        (x.id || x._id) === key ? { ...x, ...patch } : x
-      )
+      prev.map((x) => ((x.id || x._id) === key ? { ...x, ...patch } : x))
     );
   };
 
   const threads = activeTab === 'top' ? topThreads : latestThreads;
   const loading = activeTab === 'top' ? topLoading : latestLoading;
 
-const TabButton = ({ tab, label }) => {
-  const isActive = activeTab === tab;
+  const TabButton = ({ tab, label }) => {
+    const isActive = activeTab === tab;
 
-  return (
-    <button
-      type="button"
-      onClick={() => setActiveTab(tab)}
-      className={[
-        'relative w-full py-3 text-sm font-medium transition-colors',
-        'flex items-center justify-center',
-        isActive
-          ? 'text-foreground'
-          : 'text-muted-foreground hover:text-foreground',
-      ].join(' ')}
-    >
-      {label}
-      {isActive && (
-        <span className="absolute inset-x-0 bottom-0 h-[3px] bg-foreground" />
-      )}
-    </button>
-  );
-};
-
+    return (
+      <button
+        type="button"
+        onClick={() => setActiveTab(tab)}
+        className={[
+          'relative w-full py-3 text-sm font-medium transition-colors',
+          'flex items-center justify-center',
+          isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+        ].join(' ')}
+      >
+        {label}
+        {isActive && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-foreground" />}
+      </button>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
       <div className="flex">
-        <Sidebar />
+        {/* ✅ hide on mobile/tablet */}
+        <div className="hidden lg:block">
+          <Sidebar />
+        </div>
 
         {/* Center feed + right rail */}
         <div className="flex-1 flex justify-center">
@@ -213,21 +178,19 @@ const TabButton = ({ tab, label }) => {
                   <h1 className="text-lg font-semibold text-blue-600 dark:text-blue-400">
                     #{hashtag}
                   </h1>
-                  <p className="text-sm text-muted-foreground">
-                    Threads
-                  </p>
+                  <p className="text-sm text-muted-foreground">Threads</p>
                 </div>
               </header>
 
               {/* Tabs */}
-            <div className="border-b mt-2">
-            <div className="mx-auto max-w-3xl">
-                <div className="grid grid-cols-2">
-                <TabButton tab="top" label="Top" />
-                <TabButton tab="latest" label="Latest" />
+              <div className="border-b mt-2">
+                <div className="mx-auto max-w-3xl">
+                  <div className="grid grid-cols-2">
+                    <TabButton tab="top" label="Top" />
+                    <TabButton tab="latest" label="Latest" />
+                  </div>
                 </div>
-            </div>
-            </div>
+              </div>
 
               {/* Content */}
               <div className="mx-auto max-w-3xl py-5">
@@ -242,16 +205,12 @@ const TabButton = ({ tab, label }) => {
                   ))}
 
                   {loading && (
-                    <div className="py-2 text-sm text-muted-foreground">
-                      Loading…
-                    </div>
+                    <div className="py-2 text-sm text-muted-foreground">Loading…</div>
                   )}
 
                   {!loading && threads.length === 0 && (
                     <div className="py-12 text-center text-muted-foreground">
-                      {activeTab === 'top'
-                        ? 'No top threads yet.'
-                        : 'No latest threads yet.'}
+                      {activeTab === 'top' ? 'No top threads yet.' : 'No latest threads yet.'}
                     </div>
                   )}
 

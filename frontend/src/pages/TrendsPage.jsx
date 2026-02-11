@@ -49,11 +49,7 @@ export default function TrendsPage() {
   }, [cleanedQuery]);
 
   const goToTag = (tag) => {
-    const normalized = String(tag || '')
-      .trim()
-      .replace(/^#/, '')
-      .toLowerCase();
-
+    const normalized = String(tag || '').trim().replace(/^#/, '').toLowerCase();
     if (!normalized) return;
     navigate(`/hashtag/${normalized}`);
   };
@@ -63,19 +59,20 @@ export default function TrendsPage() {
       <Navbar />
 
       <div className="flex">
-        <Sidebar />
+        {/* ✅ hide on mobile/tablet */}
+        <div className="hidden lg:block">
+          <Sidebar />
+        </div>
 
         {/* Center + right rail */}
         <div className="flex-1 flex justify-center">
-          <main className="flex w-full max-w-6xl gap-6 px-4 py-6 sm:px-6">
+          <main className="flex w-full max-w-6xl gap-6 px-4 py-4 sm:px-6 sm:py-6">
             {/* Main content */}
             <section className="flex-1 min-w-0">
               <div className="mx-auto w-full max-w-2xl">
                 <Card>
                   <CardHeader className="space-y-4">
-                    <CardTitle className="text-xl">
-                      Trending Now
-                    </CardTitle>
+                    <CardTitle className="text-xl">Trending Now</CardTitle>
 
                     <Input
                       value={query}
@@ -86,15 +83,11 @@ export default function TrendsPage() {
 
                   <CardContent className="space-y-3">
                     {loading && (
-                      <div className="text-sm text-muted-foreground">
-                        Loading…
-                      </div>
+                      <div className="text-sm text-muted-foreground">Loading…</div>
                     )}
 
                     {!loading && items.length === 0 && (
-                      <div className="text-sm text-muted-foreground">
-                        No trends found.
-                      </div>
+                      <div className="text-sm text-muted-foreground">No trends found.</div>
                     )}
 
                     {items.map((trend) => (
@@ -114,9 +107,7 @@ export default function TrendsPage() {
                           </div>
                         </div>
 
-                        <span className="text-sm text-muted-foreground">
-                          {trend.count}
-                        </span>
+                        <span className="text-sm text-muted-foreground">{trend.count}</span>
                       </button>
                     ))}
 

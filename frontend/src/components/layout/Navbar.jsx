@@ -2,10 +2,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Search, Bell, User, LogOut, Settings } from 'lucide-react';
 import { ThemeToggle } from '../ThemeToggle';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/input'; // ✅ needed for anon setup dialog
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react'; // ✅ remove useRef
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +21,9 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 
+// ❌ remove (unused)
+// import Sidebar from '@/components/layout/Sidebar';
+
 import { connectSocket, disconnectSocket, getSocket } from '@/socket/client';
 import { useNotificationsStore } from '@/store/notificationsStore';
 
@@ -28,12 +31,9 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
-
   const { unread, setUnread, upsertFromSocket } = useNotificationsStore();
 
   // ✅ single socket lifecycle effect:
-  // - connect while logged in
-  // - reconnect when activeMode changes (presence/persona)
   useEffect(() => {
     if (!user) {
       disconnectSocket();
@@ -47,18 +47,6 @@ export default function Navbar() {
     };
   }, [user, activeMode]);
 
-  // --- Search state ---
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
-  const abortRef = useRef(null);
-  const blurTimerRef = useRef(null);
-
-  const trimmedQuery = useMemo(() => query.trim(), [query]);
-
   // ✅ anon setup dialog state
   const [anonSetupOpen, setAnonSetupOpen] = useState(false);
   const [anonHandle, setAnonHandle] = useState('');
@@ -67,9 +55,7 @@ export default function Navbar() {
   const [anonSetupError, setAnonSetupError] = useState('');
   const [isSwitchingMode, setIsSwitchingMode] = useState(false);
 
-  const getInitials = (username) => {
-    return username?.substring(0, 2).toUpperCase() || 'U';
-  };
+  const getInitials = (username) => username?.substring(0, 2).toUpperCase() || 'U';
 
   // ✅ load personas once authenticated (navbar mount / refresh)
   useEffect(() => {
@@ -119,69 +105,6 @@ export default function Navbar() {
     } catch (error) {
       console.error('Logout failed:', error);
     }
-  };
-
-  useEffect(() => {
-    // close + reset when empty
-    if (!trimmedQuery) {
-      setResults([]);
-      setSearchError('');
-      setIsSearching(false);
-      setIsDropdownOpen(false);
-      if (abortRef.current) abortRef.current.abort();
-      return;
-    }
-
-    // debounce + cancel previous request
-    setIsSearching(true);
-    setSearchError('');
-    setIsDropdownOpen(true);
-
-    const t = window.setTimeout(async () => {
-      try {
-        if (abortRef.current) abortRef.current.abort();
-        const controller = new AbortController();
-        abortRef.current = controller;
-
-        // ✅ persona search endpoint
-        const res = await api.get('/personas/search', {
-          params: { q: trimmedQuery, page: 1, limit: 10 },
-          signal: controller.signal,
-        });
-
-        setResults(Array.isArray(res.results) ? res.results : []);
-      } catch (err) {
-        // ignore abort errors
-        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
-
-        setResults([]);
-        setSearchError(err?.response?.data?.message || err?.message || 'Search failed');
-      } finally {
-        setIsSearching(false);
-      }
-    }, 250);
-
-    return () => window.clearTimeout(t);
-  }, [trimmedQuery]);
-
-  const onSearchFocus = () => {
-    if (blurTimerRef.current) window.clearTimeout(blurTimerRef.current);
-    if (trimmedQuery) setIsDropdownOpen(true);
-  };
-
-  const onSearchBlur = () => {
-    // small delay so clicking a dropdown item still works
-    blurTimerRef.current = window.setTimeout(() => setIsDropdownOpen(false), 150);
-  };
-
-  const goToPersona = (handle) => {
-    const h = (handle || '').trim().replace(/^@+/, '');
-    if (!h) return;
-
-    setIsDropdownOpen(false);
-    setQuery('');
-    setResults([]);
-    navigate(`/@${h}`);
   };
 
   // ✅ mode switcher
@@ -291,89 +214,30 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between px-4">
-        {/* Logo */}
-        <Link to="/home" className="flex items-center space-x-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            B
-          </div>
-          <span className="hidden font-bold sm:inline-block">Bark</span>
-        </Link>
-
-        {/* Search Bar */}
-        <div className="flex-1 max-w-md mx-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search profiles..."
-              className="pl-10"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onFocus={onSearchFocus}
-              onBlur={onSearchBlur}
-            />
-
-            {/* Dropdown */}
-            {isDropdownOpen && trimmedQuery && (
-              <div className="absolute left-0 right-0 mt-2 rounded-lg border bg-background shadow-lg overflow-hidden z-50">
-                {isSearching ? (
-                  <div className="p-3 text-sm text-muted-foreground">Searching…</div>
-                ) : searchError ? (
-                  <div className="p-3 text-sm text-red-500">{searchError}</div>
-                ) : results.length === 0 ? (
-                  <div className="p-3 text-sm text-muted-foreground">No profiles found</div>
-                ) : (
-                  <ul className="max-h-80 overflow-auto">
-                    {results.map((p) => {
-                      const handle = p?.handle || p?.username;
-                      const displayName = p?.displayName || handle || 'Profile';
-                      const typeLabel = p?.type === 'anon' ? 'Anon' : 'Public';
-
-                      // ✅ show rollNumber only for public personas (backend already blanks it for anon)
-                      const rollNumber = p?.type === 'public' && p?.rollNumber ? p.rollNumber : '';
-
-                      return (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            className="w-full px-3 py-2 text-left hover:bg-accent flex items-center gap-3"
-                            onMouseDown={(e) => e.preventDefault()} // prevents blur before click
-                            onClick={() => goToPersona(handle)}
-                          >
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={p.profilePic} alt={handle || 'profile'} />
-                              <AvatarFallback>{getInitials(handle)}</AvatarFallback>
-                            </Avatar>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-medium truncate">
-                                @{handle}{' '}
-                                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border text-muted-foreground align-middle">
-                                  {typeLabel}
-                                </span>
-                              </div>
-
-                              {/* ✅ second line now includes rollNumber for public personas */}
-                              <div className="text-xs text-muted-foreground truncate">
-                                {displayName}
-                                {rollNumber ? ` • ${rollNumber}` : ''}
-                                {typeof p.threadsCount === 'number' ? ` • ${p.threadsCount} posts` : ''}
-                              </div>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
+        {/* Left: Logo (no burger on mobile now) */}
+        <div className="flex items-center gap-2">
+          <Link to="/home" className="flex items-center space-x-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+              B
+            </div>
+            <span className="hidden font-bold sm:inline-block">Bark</span>
+          </Link>
         </div>
 
         {/* Right Side Actions */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 sm:space-x-4">
           <ThemeToggle />
+
+          {/* ✅ Search button -> /search */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate('/search')}
+            aria-label="Search"
+            title="Search"
+          >
+            <Search className="h-5 w-5" />
+          </Button>
 
           {/* ✅ Public/Anon Toggle */}
           {user && (
@@ -444,7 +308,7 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* ✅ Anon Setup Dialog */}
+      {/* ✅ Anon Setup Dialog stays as-is */}
       <Dialog open={anonSetupOpen} onOpenChange={setAnonSetupOpen}>
         <DialogContent>
           <DialogHeader>

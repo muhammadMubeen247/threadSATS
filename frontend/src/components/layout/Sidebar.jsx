@@ -6,13 +6,13 @@ import {
   Settings,
   PlusCircle,
   MessageCircle,
-  TrendingUp, // ✅ add
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 
-export default function Sidebar({ onCreateThread }) {
+export default function Sidebar({ onCreateThread, onNavigate, className }) {
   const location = useLocation();
   const { user } = useAuthStore();
 
@@ -20,22 +20,42 @@ export default function Sidebar({ onCreateThread }) {
 
   const navItems = [
     { name: 'Home', icon: Home, path: '/home' },
+    { name: 'Search', icon: Search, path: '/search' }, // ✅ add
     { name: 'Profile', icon: User, path: profilePath },
-
     { name: 'Messages', icon: MessageCircle, path: '/messages' },
-
-    // ✅ NEW: Trends
     { name: 'Trends', icon: TrendingUp, path: '/trends' },
-
-    // { name: 'Search', icon: Search, path: '/search' },
     { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   return (
-    <aside className="sticky top-16 h-[calc(100vh-4rem)] w-64 border-r bg-background p-4">
+    <aside
+      className={cn(
+        'sticky top-16 h-[calc(100vh-4rem)] w-64 border-r bg-background p-4',
+        className
+      )}
+    >
       <nav className="space-y-2">
-        {onCreateThread && (
-          <Button onClick={onCreateThread} className="w-full justify-start" size="lg">
+        {onCreateThread !== undefined ? (
+          <Button
+            onClick={() => {
+              onCreateThread?.();
+              onNavigate?.();
+            }}
+            className="w-full justify-start"
+            size="lg"
+          >
+            <PlusCircle className="mr-2 h-5 w-5" />
+            Create Thread
+          </Button>
+        ) : (
+          <Button
+            onClick={() => {
+              window.dispatchEvent(new Event('thread:create'));
+              onNavigate?.();
+            }}
+            className="w-full justify-start"
+            size="lg"
+          >
             <PlusCircle className="mr-2 h-5 w-5" />
             Create Thread
           </Button>
@@ -47,11 +67,10 @@ export default function Sidebar({ onCreateThread }) {
           const isActive =
             location.pathname === item.path ||
             (item.path === '/messages' && location.pathname.startsWith('/messages')) ||
-            (item.path === '/trends' && location.pathname.startsWith('/trends')) || // ✅
-            (item.path === '/hashtag/:tag' && location.pathname.startsWith('/hashtag')); // (optional, harmless)
+            (item.path === '/trends' && location.pathname.startsWith('/trends'));
 
           return (
-            <Link key={item.path} to={item.path}>
+            <Link key={item.path} to={item.path} onClick={onNavigate}>
               <Button
                 variant={isActive ? 'secondary' : 'ghost'}
                 className={cn('w-full justify-start', isActive && 'bg-secondary')}

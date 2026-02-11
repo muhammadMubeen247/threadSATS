@@ -260,7 +260,10 @@ export default function NotificationsPage() {
       <Navbar />
 
       <div className="flex">
-        <Sidebar />
+        {/* ✅ hide app sidebar on small screens */}
+        <div className="hidden lg:block">
+          <Sidebar />
+        </div>
 
         {/* Center feed + right rail */}
         <div className="flex-1 flex justify-center">
@@ -270,9 +273,7 @@ export default function NotificationsPage() {
               <header className="border-b py-5">
                 <div className="mx-auto max-w-2xl flex items-center justify-between gap-3">
                   <div>
-                    <h1 className="text-lg font-semibold">
-                      Notifications
-                    </h1>
+                    <h1 className="text-lg font-semibold">Notifications</h1>
                     <p className="text-sm text-muted-foreground">
                       Your activity updates
                     </p>
@@ -434,7 +435,7 @@ export default function NotificationsPage() {
               </div>
             </section>
 
-            {/* Right rail */}
+            {/* ✅ right rail already hidden on small screens */}
             <aside className="hidden lg:block w-80 shrink-0">
               <SuggestedUsers />
             </aside>

@@ -3,12 +3,12 @@ import { useMemo, useState } from 'react';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
 import ChangePasswordPanel from '@/components/settings/ChangePasswordPanel';
-import BlockedPersonasPanel from '@/components/settings/BlockedPersonasPanel'; // ✅ add
+import BlockedPersonasPanel from '@/components/settings/BlockedPersonasPanel';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Lock, UserX } from 'lucide-react'; // ✅ add UserX
+import { ArrowLeft, Lock, UserX } from 'lucide-react';
 
 export default function Settings() {
   const [activeKey, setActiveKey] = useState(null);
@@ -83,9 +83,9 @@ export default function Settings() {
       <Navbar />
 
       <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="grid gap-6 md:grid-cols-[16rem_22rem_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[16rem_22rem_1fr]">
           {/* Left: App sidebar */}
-          <div className="hidden md:block">
+          <div className="hidden lg:block">
             <Sidebar />
           </div>
 
@@ -141,7 +141,7 @@ export default function Settings() {
             ))}
 
             {/* Mobile helper */}
-            <div className="md:hidden space-y-2">
+            <div className="lg:hidden space-y-2">
               <Button variant="outline" className="w-full" onClick={() => window.history.back()}>
                 Back
               </Button>

@@ -15,7 +15,6 @@ import PersonaLikesTab from '@/components/profile/PersonaLikesTab';
 export default function ProfilePage() {
   const { handle } = useParams();
   const navigate = useNavigate();
-
   const { isAuthenticated } = useAuthStore();
 
   const personaHandle = useMemo(() => {
@@ -32,19 +31,14 @@ export default function ProfilePage() {
       try {
         setLoading(true);
         setError(null);
-
         const res = await api.get(`/personas/${personaHandle}/profile`);
         setProfile(res.persona);
       } catch (err) {
-        const status = err?.response?.status;
-
-        // ✅ HARD restriction: if blocked either-way, backend returns 403. Redirect away.
-        if (status === 403) {
+        if (err?.response?.status === 403) {
           navigate('/home', { replace: true });
           return;
         }
-
-        setError(err?.response?.data?.message || err?.message || 'Failed to load profile');
+        setError(err?.response?.data?.message || 'Failed to load profile');
       } finally {
         setLoading(false);
       }
@@ -53,30 +47,20 @@ export default function ProfilePage() {
     if (personaHandle) fetchPersonaProfile();
   }, [personaHandle, navigate]);
 
-  if (!handle?.startsWith('@')) {
-    return <Navigate to="/home" replace />;
-  }
+  if (!handle?.startsWith('@')) return <Navigate to="/home" replace />;
 
   const isOwnProfile = Boolean(profile?.isOwnProfile);
 
   const handleFollowToggle = async (_ignored, isCurrentlyFollowing) => {
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
+    if (!isAuthenticated) return navigate('/login');
 
     const targetHandle = profile?.handle || profile?.username;
     if (!targetHandle) throw new Error('Invalid profile handle');
 
-    try {
-      if (isCurrentlyFollowing) {
-        await api.delete(`/personas/${targetHandle}/follow`);
-      } else {
-        await api.post(`/personas/${targetHandle}/follow`);
-      }
-    } catch (err) {
-      const msg = err?.response?.data?.message || err?.message || 'Follow action failed';
-      throw new Error(msg);
+    if (isCurrentlyFollowing) {
+      await api.delete(`/personas/${targetHandle}/follow`);
+    } else {
+      await api.post(`/personas/${targetHandle}/follow`);
     }
   };
 
@@ -86,7 +70,7 @@ export default function ProfilePage() {
         <Navbar />
         <div className="flex items-center justify-center min-h-[calc(100vh-4rem)] px-4">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
+            <div className="animate-spin h-12 w-12 border-b-2 border-primary rounded-full mx-auto" />
             <p className="mt-4 text-muted-foreground">Loading profile...</p>
           </div>
         </div>
@@ -116,32 +100,34 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <div className="container mx-auto flex flex-col lg:flex-row">
+      <div className="container mx-auto flex flex-col lg:flex-row px-3 sm:px-4">
+        {/* Left Sidebar */}
         <aside className="hidden lg:block w-64 shrink-0">
           <Sidebar onCreateThread={() => navigate('/home')} />
         </aside>
 
-        <main className="flex-1 min-h-[calc(100vh-4rem)] lg:border-x">
+        {/* Main Content */}
+        <main className="flex-1 min-h-[calc(100vh-4rem)] lg:border-x max-w-2xl mx-auto lg:max-w-none">
           <ProfileHeader
             profile={profile}
             isOwnProfile={isOwnProfile}
             onFollowToggle={handleFollowToggle}
-            // ✅ editing should happen via /me (active persona)
             onEditProfile={() => navigate('/me')}
             onProfilePicUpdated={() => {}}
           />
 
           <Tabs defaultValue="threads" className="mt-4">
-            <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent">
-              <TabsTrigger value="threads" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Threads
-              </TabsTrigger>
-              <TabsTrigger value="replies" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Replies
-              </TabsTrigger>
-              <TabsTrigger value="likes" className="flex-1 sm:flex-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3">
-                Likes
-              </TabsTrigger>
+            {/* Scrollable tabs on mobile */}
+            <TabsList className="w-full overflow-x-auto flex-nowrap border-b rounded-none h-auto p-0 bg-transparent">
+              {['threads', 'replies', 'likes'].map((tab) => (
+                <TabsTrigger
+                  key={tab}
+                  value={tab}
+                  className="flex-shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 sm:px-6 py-3 capitalize"
+                >
+                  {tab}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value="threads" className="mt-0">
@@ -156,6 +142,7 @@ export default function ProfilePage() {
           </Tabs>
         </main>
 
+        {/* Right Sidebar */}
         <aside className="hidden xl:block w-80 shrink-0">
           <SuggestedUsers />
         </aside>

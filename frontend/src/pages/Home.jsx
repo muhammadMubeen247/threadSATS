@@ -6,7 +6,6 @@ import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
 import SuggestedUsers from '@/components/layout/SuggestedUsers';
 import ThreadCard from '@/components/feed/ThreadCard';
-import CreateThreadModal from '@/components/feed/CreateThreadModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
@@ -17,7 +16,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('forYou');
   const [threads, setThreads] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -148,18 +146,30 @@ export default function Home() {
     );
   };
 
+  // ✅ update feed when global modal creates a thread
+  useEffect(() => {
+    const onCreated = (e) => {
+      const newThread = e?.detail;
+      if (!newThread) return;
+
+      setThreads((prev) => [newThread, ...prev]);
+      setTotalThreads((prev) => prev + 1);
+    };
+
+    window.addEventListener('thread:created', onCreated);
+    return () => window.removeEventListener('thread:created', onCreated);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Responsive shell:
-          - Mobile: feed full width
-          - lg+: left sidebar + feed
-          - xl+: right suggestions */}
       <div className="container mx-auto flex flex-col lg:flex-row">
         {/* Left Sidebar (desktop only) */}
         <aside className="hidden lg:block w-64 shrink-0">
-          <Sidebar onCreateThread={() => setShowCreateModal(true)} />
+          <Sidebar
+            onCreateThread={() => window.dispatchEvent(new Event('thread:create'))}
+          />
         </aside>
 
         {/* Main Feed */}
@@ -203,12 +213,6 @@ export default function Home() {
           <SuggestedUsers />
         </aside>
       </div>
-
-      <CreateThreadModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onThreadCreated={handleThreadCreated}
-      />
     </div>
   );
 }
