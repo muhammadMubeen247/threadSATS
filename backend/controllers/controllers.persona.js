@@ -28,6 +28,10 @@ const arePersonasBlockedEitherWay = async (viewerPersonaId, targetPersonaId) => 
 
 const normalizeHandle = (h) => (typeof h === 'string' ? h.trim().toLowerCase() : '');
 
+// ✅ Only return personas that are configured
+// (Requirement: don't show personas where isConfigured === false)
+const VISIBLE_PERSONA_QUERY = { isConfigured: true };
+
 const requireViewerContext = async (req, res) => {
   const ctx = await getViewerContext(req.user.id);
   if (!ctx) {
@@ -931,23 +935,12 @@ exports.searchPersonas = async (req, res) => {
       return res.status(200).json({ success: true, q: '', page, pages: 0, count: 0, total: 0, results: [] });
     }
 
-    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const handleRegex = new RegExp(`^${escaped}`, 'i');
-
-    // ✅ rollNumber prefix + exact match (PUBLIC only)
-    const escapedRaw = qRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const rollPrefixRegex = new RegExp(`^${escapedRaw}`, 'i');
-    const rollExactRegex = new RegExp(`^${escapedRaw}$`, 'i');
-
-    // Decide when to include rollNumber search
-    const enableRollSearch = qRaw.length >= 2; // adjust to 3 if you want less enumeration
-
-    // viewer context (optional)
+    // ✅ viewer context (optionalAuth)
     let viewerPersonaId = null;
     let blockedSet = new Set();
     let viewerFollowingSet = new Set();
 
-    if (req.user) {
+    if (req.user?.id) {
       const ctx = await getViewerContext(req.user.id);
       viewerPersonaId = ctx?.activePersonaId || null;
 
@@ -959,7 +952,16 @@ exports.searchPersonas = async (req, res) => {
       }
     }
 
-    const baseQuery = enableRollSearch
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const handleRegex = new RegExp(`^${escaped}`, 'i');
+
+    const escapedRaw = qRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rollPrefixRegex = new RegExp(`^${escapedRaw}`, 'i');
+    const rollExactRegex = new RegExp(`^${escapedRaw}$`, 'i');
+
+    const enableRollSearch = qRaw.length >= 2;
+
+    const searchOr = enableRollSearch
       ? {
           $or: [
             { handle: { $regex: handleRegex } },
@@ -967,6 +969,8 @@ exports.searchPersonas = async (req, res) => {
           ],
         }
       : { handle: { $regex: handleRegex } };
+
+    const baseQuery = { $and: [VISIBLE_PERSONA_QUERY, searchOr] };
 
     const total = await Persona.countDocuments(baseQuery);
 
@@ -1186,17 +1190,14 @@ exports.getSuggestedPersonas = async (req, res) => {
     const viewerFollowing = viewer?.following || [];
     const viewerFollowingSet = new Set(viewerFollowing.map((x) => x.toString()));
 
-    const scoreMap = new Map(); // personaId -> number
-    const reasonMap = new Map(); // personaId -> [string]
+    const scoreMap = new Map();
+    const reasonMap = new Map();
 
     const addScore = (id, delta, reason) => {
       if (!id) return;
       const pid = id.toString();
 
-      // exclude only the active persona itself (other owned personas are allowed)
       if (pid === viewerPersonaId) return;
-
-      // filters
       if (blockedSet.has(pid)) return;
       if (viewerFollowingSet.has(pid)) return;
 
@@ -1320,8 +1321,12 @@ exports.getSuggestedPersonas = async (req, res) => {
       addScore(r._id, points, `trending:${points}`);
     });
 
-    // 5) Recency (+1)
-    const recent = await Persona.find({}).select('_id createdAt').sort({ createdAt: -1 }).limit(100).lean();
+    // 5) Recency (+1) ✅ only visible personas
+    const recent = await Persona.find(VISIBLE_PERSONA_QUERY)
+      .select('_id createdAt')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
     for (const p of recent) addScore(p._id, 1, 'new');
 
     // 6) Active recently (+1) among candidates
@@ -1348,7 +1353,9 @@ exports.getSuggestedPersonas = async (req, res) => {
     const hasMore = skip + limit < totalCandidates;
 
     const pageIds = pageSlice.map(([id]) => new mongoose.Types.ObjectId(id));
-    const docs = await Persona.find({ _id: { $in: pageIds } })
+
+    // ✅ only fetch visible personas for the page
+    const docs = await Persona.find({ $and: [VISIBLE_PERSONA_QUERY, { _id: { $in: pageIds } }] })
       .select('_id handle displayName profilePic type rollNumber')
       .lean();
 
