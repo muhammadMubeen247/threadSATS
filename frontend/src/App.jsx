@@ -14,6 +14,7 @@ import HashtagThreadsPage from './pages/HashtagThreadsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import Settings from './pages/Settings';
 import SearchPage from './pages/SearchPage';
+import ForgotPassword from './pages/ForgotPassword';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import ProtectedLayout from '@/components/layout/ProtectedLayout'; // ✅ add
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="signup" element={<Signup />} />
       <Route path="verify-otp" element={<VerifyOTP />} />
       <Route path="login" element={<Login />} />
+      <Route path="forgot-password" element={<ForgotPassword />} />
 
       {/* protected (layout renders MobileBottomNav on mobile) */}
       <Route
