@@ -1045,3 +1045,133 @@ exports.getThreadsByHashtag = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
+
+// ✅ GET /api/threads/feed/batch
+// Returns threads from personas in viewer's same (batch + department), e.g. FA22-BCS
+exports.getBatchFeed = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // keep behavior consistent with other feeds
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) {
+        return res.status(409).json({
+          success: false,
+          setupRequired: true,
+          message: 'Anonymous persona setup required',
+        });
+      }
+    }
+
+    // viewer's batch/department come from User
+    const viewerUser =
+      ctx.user?.department && ctx.user?.batch
+        ? ctx.user
+        : await User.findById(req.user.id).select('department batch').lean();
+
+    const department = viewerUser?.department || '';
+    const batch = viewerUser?.batch || '';
+
+    if (!department || !batch) {
+      return res.status(400).json({ success: false, message: 'Department/batch not found for viewer' });
+    }
+
+    // ✅ only public + configured personas for "your batch"
+    const personaIds = await Persona.distinct('_id', {
+      type: 'public',
+      isConfigured: true,
+      department,
+      batch,
+    });
+
+    if (!personaIds.length) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        total: 0,
+        page,
+        pages: 0,
+        threads: [],
+        message: `No threads from ${batch}-${department} yet.`,
+      });
+    }
+
+    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
+
+    const query = {
+      authorPersona: { $in: personaIds },
+      isDeleted: false,
+      type: { $in: ['thread', 'repost', 'quote'] },
+    };
+
+    const total = await Thread.countDocuments(query);
+
+    const docs = await Thread.find(query)
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
+      .populate({
+        path: 'repostOf',
+        match: { isDeleted: false },
+        populate: [
+          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          {
+            path: 'repostOf',
+            match: { isDeleted: false },
+            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
+          },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // ✅ filter blocked content (author + nested repost chains)
+    const visible = docs.filter((t) => {
+      const involved = collectPersonaIdsInThreadDoc(t);
+      for (const id of involved) if (blockedSet.has(id)) return false;
+      return true;
+    });
+
+    // ✅ compute isReposted for viewer
+    const targets = visible.map((t) => t._id).filter(Boolean);
+    const repostedTargetIdSet = new Set();
+
+    if (ctx.activePersonaId && targets.length) {
+      const myReposts = await Thread.find({
+        type: 'repost',
+        authorPersona: ctx.activePersonaId,
+        repostOf: { $in: targets },
+        isDeleted: false,
+      })
+        .select('repostOf')
+        .lean();
+
+      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+    }
+
+    const threads = visible
+      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
+      .map((t) => formatFeedItem(t, ctx.activePersonaId, ctx.ownedPersonaIds, repostedTargetIdSet));
+
+    return res.status(200).json({
+      success: true,
+      department,
+      batch,
+      batchKey: `${batch}-${department}`,
+      count: threads.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      threads,
+    });
+  } catch (error) {
+    console.error('getBatchFeed error:', error);
+    return res.status(500).json({ success: false, message: 'Server error while fetching batch feed', error: error.message });
+  }
+};

@@ -32,7 +32,7 @@ import RichText from '@/components/common/RichText';
 export default function ThreadDetail() {
   const { threadId } = useParams();
   const navigate = useNavigate();
-  const location = useLocation(); // ✅ add
+  const location = useLocation();
   const { user } = useAuthStore();
 
   const [thread, setThread] = useState(null);
@@ -60,6 +60,35 @@ export default function ThreadDetail() {
   const [expandedComments, setExpandedComments] = useState({});
 
   const [quoteOpen, setQuoteOpen] = useState(false);
+
+    // ✅ ADD: prevents ReferenceError + enables comment highlight from URL hash
+  const [focusedCommentId, setFocusedCommentId] = useState(null);
+
+  // ✅ ADD: when navigating to /thread/:id#comment-<commentId>, scroll + highlight
+  useEffect(() => {
+    const hash = String(location.hash || '');
+    const m = hash.match(/^#comment-(.+)$/);
+
+    if (!m?.[1]) {
+      setFocusedCommentId(null);
+      return;
+    }
+
+    const id = String(m[1]);
+    setFocusedCommentId(id);
+
+    const raf = window.requestAnimationFrame(() => {
+      const el = document.getElementById(`comment-${id}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    const t = window.setTimeout(() => setFocusedCommentId(null), 2500);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [location.hash]);
 
   const threadType = thread?.type || 'thread';
 
@@ -431,6 +460,8 @@ export default function ThreadDetail() {
     );
   };
 
+
+
   // ✅ Replace `const CommentItem = (...) => { ... }` with a render function:
   const renderCommentItem = (comment, depth = 0, parentCommentId = null) => {
     if (!comment) return null;
@@ -451,7 +482,7 @@ export default function ThreadDetail() {
 
     return (
       <div
-        id={`comment-${commentId}`} // ✅ add anchor target
+        id={`comment-${commentId}`}
         className={focusedCommentId === String(commentId) ? 'ring-2 ring-sky-500 rounded-xl' : ''}
       >
         <div className="relative">
