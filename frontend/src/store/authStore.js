@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import api from '@/api/axios'; // ✅ add
+import api from '@/api/axios';
 
 export const useAuthStore = create(
   persist(
@@ -9,10 +9,8 @@ export const useAuthStore = create(
       isAuthenticated: false,
       isLoading: false,
 
-      // ✅ add: prevents app from trusting localStorage blindly
       sessionChecked: false,
 
-      // ✅ persona context
       activeMode: 'public',
       personas: null,
 
@@ -30,26 +28,30 @@ export const useAuthStore = create(
       setPersonas: (personas) => set({ personas }),
       setActiveMode: (activeMode) => set({ activeMode }),
 
-      // ✅ call this once on app start
       checkSession: async () => {
         set({ isLoading: true });
         try {
           const res = await api.get('/users/me/profile');
 
-          // support a couple of response shapes
-          const nextUser = res?.user || res;
-          const nextPersonas = res?.personas || null;
-          const nextActiveMode = res?.activeMode || get().activeMode;
+          // /users/me/profile in this app returns persona context (not a user object)
+          const nextActiveMode = res?.activeMode || get().activeMode || 'public';
+          const persona = res?.persona || null;
 
-          set({
-            user: nextUser,
-            personas: nextPersonas ?? get().personas,
+          set((state) => ({
+            // ✅ only update user if backend explicitly returns it
+            user: res?.user ? res.user : state.user,
+
             activeMode: nextActiveMode,
+
+            // ✅ ensure personas is at least an object and merge the returned persona
+            personas: persona
+              ? { ...(state.personas || {}), [nextActiveMode]: persona }
+              : state.personas,
+
             isAuthenticated: true,
             sessionChecked: true,
-          });
+          }));
         } catch (e) {
-          // cookie invalid/expired
           get().logout();
         } finally {
           set({ isLoading: false });
@@ -59,11 +61,9 @@ export const useAuthStore = create(
     {
       name: 'auth-storage',
       partialize: (state) => ({
-        // ✅ persist only UI hints; session validity comes from checkSession()
         user: state.user,
         activeMode: state.activeMode,
         personas: state.personas,
-        // ❌ do not persist isAuthenticated/sessionChecked
       }),
     }
   )

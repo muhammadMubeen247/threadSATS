@@ -33,7 +33,20 @@ export default function ThreadDetail() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuthStore();
+
+  // ✅ pull persona info too (so avatar works even when user is briefly null)
+  const { user, personas, activeMode } = useAuthStore();
+
+  // ✅ ADD THIS: fixes "commenterIdentity is not defined"
+  const commenterIdentity = useMemo(() => {
+    // personas is expected like: { public: {...}, anon: {...} }
+    const activePersona = activeMode === 'anon' ? personas?.anon : personas?.public;
+
+    return {
+      username: activePersona?.handle || user?.username || user?.handle || '',
+      profilePic: activePersona?.profilePic || user?.profilePic || '',
+    };
+  }, [activeMode, personas, user]);
 
   const [thread, setThread] = useState(null);
   const [comments, setComments] = useState([]);
@@ -561,8 +574,11 @@ export default function ThreadDetail() {
                 {replyingTo?.commentId === commentId && (
                   <div className="mt-3 flex gap-2" dir="ltr">
                     <Avatar className="h-8 w-8 flex-shrink-0">
-                      <AvatarImage src={user?.profilePic} alt={user?.username} />
-                      <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
+                      <AvatarImage
+                        src={commenterIdentity.profilePic ? commenterIdentity.profilePic : undefined}
+                        alt={commenterIdentity.username || 'User'}
+                      />
+                      <AvatarFallback>{getInitials(commenterIdentity.username)}</AvatarFallback>
                     </Avatar>
 
                     <div className="flex-1 space-y-2">
@@ -884,8 +900,12 @@ export default function ThreadDetail() {
             <form onSubmit={handleCommentSubmit} className="space-y-3">
               <div className="flex space-x-3">
                 <Avatar className="h-10 w-10 flex-shrink-0">
-                  <AvatarImage src={user?.profilePic} alt={user?.username} />
-                  <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
+                  <AvatarImage
+                    // ✅ important: use undefined when missing (avoid src="")
+                    src={commenterIdentity.profilePic ? commenterIdentity.profilePic : undefined}
+                    alt={commenterIdentity.username || 'User'}
+                  />
+                  <AvatarFallback>{getInitials(commenterIdentity.username)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <MentionTextarea
