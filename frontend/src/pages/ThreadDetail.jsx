@@ -37,16 +37,19 @@ export default function ThreadDetail() {
   // ✅ pull persona info too (so avatar works even when user is briefly null)
   const { user, personas, activeMode } = useAuthStore();
 
+  // ✅ active persona (used for ownership checks)
+  const activePersona = useMemo(() => {
+    return (activeMode === 'anon' ? personas?.anon : personas?.public) || personas?.[activeMode] || null;
+  }, [activeMode, personas]);
+
   // ✅ ADD THIS: fixes "commenterIdentity is not defined"
   const commenterIdentity = useMemo(() => {
-    // personas is expected like: { public: {...}, anon: {...} }
-    const activePersona = activeMode === 'anon' ? personas?.anon : personas?.public;
-
+    const p = activePersona;
     return {
-      username: activePersona?.handle || user?.username || user?.handle || '',
-      profilePic: activePersona?.profilePic || user?.profilePic || '',
+      username: p?.handle || user?.username || user?.handle || '',
+      profilePic: p?.profilePic || user?.profilePic || '',
     };
-  }, [activeMode, personas, user]);
+  }, [activePersona, user]);
 
   const [thread, setThread] = useState(null);
   const [comments, setComments] = useState([]);
@@ -106,9 +109,14 @@ export default function ThreadDetail() {
   const threadType = thread?.type || 'thread';
 
   const isOwner = useMemo(() => {
-    const authorId = thread?.author?._id || thread?.author?.id || thread?.author?.id;
-    return !!authorId && !!user && (user._id === authorId || user.id === authorId);
-  }, [thread, user]);
+    // Prefer backend truth when available
+    if (thread?.isOwner === true) return true;
+
+    const authorId = thread?.author?._id || thread?.author?.id;
+    const activePersonaId = activePersona?._id || activePersona?.id;
+
+    return !!authorId && !!activePersonaId && String(authorId) === String(activePersonaId);
+  }, [thread, activePersona]);
 
   useEffect(() => {
     fetchThreadAndInitialComments();
@@ -411,6 +419,15 @@ export default function ThreadDetail() {
 
   const EmbeddedThreadPreview = ({ item, onOpen }) => {
     if (!item) return null;
+
+    // ✅ deleted placeholder
+    if (item?.isDeleted) {
+      return (
+        <div className="mt-3 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+          This post was deleted.
+        </div>
+      );
+    }
 
     const authorUsername = item?.author?.username;
     const authorLink = authorUsername ? `/@${authorUsername}` : null;

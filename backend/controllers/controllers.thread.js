@@ -21,32 +21,45 @@ const formatPersona = (p) => ({
 });
 
 const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
+  const isDel = !!thread?.isDeleted;
+
   const t = {
-    id: thread._id,
-    type: thread.type || 'thread',
-    content: thread.content,
-    images: thread.images,
-    likes: thread.likes,
+    id: thread?._id,
+    type: thread?.type || 'thread',
 
-    // ✅ use stored likesCount when present
-    likesCount:
-      typeof thread.likesCount === 'number'
-        ? thread.likesCount
-        : (thread.likes?.length || 0),
+    // ✅ include deletion status for embedded previews
+    isDeleted: isDel,
 
-    commentCount: thread.commentCount || 0,
-    repostCount: thread.repostCount || 0,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
+    // ✅ if deleted, don't leak content/media
+    content: isDel ? '' : (thread?.content || ''),
+    images: isDel ? [] : (thread?.images || []),
+
+    likes: thread?.likes || [],
+
+    likesCount: isDel
+      ? 0
+      : (typeof thread?.likesCount === 'number'
+          ? thread.likesCount
+          : (thread?.likes?.length || 0)),
+
+    commentCount: isDel ? 0 : (thread?.commentCount || 0),
+    repostCount: isDel ? 0 : (thread?.repostCount || 0),
+
+    createdAt: thread?.createdAt,
+    updatedAt: thread?.updatedAt,
   };
 
-  t.author = formatPersona(thread.authorPersona);
+  // author can still be shown; if missing, formatPersona tolerates it
+  t.author = formatPersona(thread?.authorPersona);
 
-  if (viewerPersonaId) {
+  if (viewerPersonaId && !isDel) {
     t.isLiked = (thread.likes || []).some((id) => id.toString() === viewerPersonaId.toString());
+  } else {
+    t.isLiked = false;
   }
 
-  t.isOwner = ownedPersonaIds.includes(thread.authorPersona?._id?.toString());
+  // ✅ owner means "active persona is the author" (unchanged)
+  t.isOwner = !!viewerPersonaId && thread?.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
   return t;
 };
@@ -206,12 +219,12 @@ exports.getAllThreads = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -323,12 +336,12 @@ exports.getUserThreads = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -404,12 +417,12 @@ exports.getThreadById = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -476,7 +489,8 @@ exports.deleteThread = async (req, res) => {
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
 
-    if (!ctx.ownedPersonaIds.includes(thread.authorPersona.toString())) {
+    // ✅ CHANGE: only allow delete if the ACTIVE persona authored it
+    if (thread.authorPersona.toString() !== ctx.activePersonaId.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized to delete this thread' });
     }
 
@@ -756,12 +770,12 @@ exports.getFollowingFeed = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -774,9 +788,7 @@ exports.getFollowingFeed = async (req, res) => {
     // ✅ filter blocked content (author + nested repost chains)
     const visible = threads.filter((t) => {
       const involved = collectPersonaIdsInThreadDoc(t);
-      for (const id of involved) {
-        if (blockedSet.has(id)) return false;
-      }
+      for (const id of involved) if (blockedSet.has(id)) return false;
       return true;
     });
 
@@ -841,12 +853,12 @@ exports.getMyThreads = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -986,12 +998,12 @@ exports.getThreadsByHashtag = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -1116,12 +1128,12 @@ exports.getBatchFeed = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
