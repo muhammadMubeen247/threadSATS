@@ -119,12 +119,14 @@ const formatEmbeddedThread = (t) => {
   if (!t || typeof t !== 'object') return null;
 
   const author = t.authorPersona && typeof t.authorPersona === 'object' ? t.authorPersona : null;
+  const isDeleted = !!t.isDeleted;
 
   return {
     id: t._id,
     type: t.type || 'thread',
-    content: t.content || '',
-    images: t.images || [],
+    isDeleted,
+    content: isDeleted ? '' : (t.content || ''),
+    images: isDeleted ? [] : (t.images || []),
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
 
@@ -153,7 +155,7 @@ const formatThreadItem = (t, viewerPersonaId, ownedPersonaIds, repostedTargetIdS
 
     isLiked,
     isReposted: repostedTargetIdSet ? repostedTargetIdSet.has(id.toString()) : false,
-    isOwner: ownedPersonaIds?.includes(author?._id?.toString?.()),
+    isOwner: !!viewerPersonaId && author?._id?.toString?.() === viewerPersonaId.toString(),
 
     author: formatAuthorPersonaForThread(author),
   };
@@ -507,12 +509,10 @@ exports.getPersonaThreadsByHandle = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic type rollNumber department batch')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           },
         ],
@@ -600,12 +600,10 @@ exports.getPersonaLikedThreadsByHandle = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic type rollNumber department batch')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic type rollNumber department batch' },
           },
         ],

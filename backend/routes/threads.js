@@ -13,7 +13,8 @@ const {
   toggleRepost,
   createQuoteRepost,
   getMyThreads,
-  getThreadsByHashtag, // ✅ add
+  getThreadsByHashtag,
+  getBatchFeed,
 } = require('../controllers/controllers.thread');
 
 const { createComment, getThreadComments } = require('../controllers/controllers.comment');
@@ -72,6 +73,7 @@ const quoteValidation = [
 // ✅ ALL routes require login now
 router.get('/', protect, getAllThreads);
 router.get('/feed/following', protect, getFollowingFeed);
+router.get('/feed/batch', protect, getBatchFeed);
 
 // ✅ IMPORTANT: keep /me BEFORE /:threadId
 router.get('/me', protect, getMyThreads);

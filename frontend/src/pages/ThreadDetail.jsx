@@ -32,8 +32,24 @@ import RichText from '@/components/common/RichText';
 export default function ThreadDetail() {
   const { threadId } = useParams();
   const navigate = useNavigate();
-  const location = useLocation(); // ✅ add
-  const { user } = useAuthStore();
+  const location = useLocation();
+
+  // ✅ pull persona info too (so avatar works even when user is briefly null)
+  const { user, personas, activeMode } = useAuthStore();
+
+  // ✅ active persona (used for ownership checks)
+  const activePersona = useMemo(() => {
+    return (activeMode === 'anon' ? personas?.anon : personas?.public) || personas?.[activeMode] || null;
+  }, [activeMode, personas]);
+
+  // ✅ ADD THIS: fixes "commenterIdentity is not defined"
+  const commenterIdentity = useMemo(() => {
+    const p = activePersona;
+    return {
+      username: p?.handle || user?.username || user?.handle || '',
+      profilePic: p?.profilePic || user?.profilePic || '',
+    };
+  }, [activePersona, user]);
 
   const [thread, setThread] = useState(null);
   const [comments, setComments] = useState([]);
@@ -61,12 +77,46 @@ export default function ThreadDetail() {
 
   const [quoteOpen, setQuoteOpen] = useState(false);
 
+    // ✅ ADD: prevents ReferenceError + enables comment highlight from URL hash
+  const [focusedCommentId, setFocusedCommentId] = useState(null);
+
+  // ✅ ADD: when navigating to /thread/:id#comment-<commentId>, scroll + highlight
+  useEffect(() => {
+    const hash = String(location.hash || '');
+    const m = hash.match(/^#comment-(.+)$/);
+
+    if (!m?.[1]) {
+      setFocusedCommentId(null);
+      return;
+    }
+
+    const id = String(m[1]);
+    setFocusedCommentId(id);
+
+    const raf = window.requestAnimationFrame(() => {
+      const el = document.getElementById(`comment-${id}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    const t = window.setTimeout(() => setFocusedCommentId(null), 2500);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [location.hash]);
+
   const threadType = thread?.type || 'thread';
 
   const isOwner = useMemo(() => {
-    const authorId = thread?.author?._id || thread?.author?.id || thread?.author?.id;
-    return !!authorId && !!user && (user._id === authorId || user.id === authorId);
-  }, [thread, user]);
+    // Prefer backend truth when available
+    if (thread?.isOwner === true) return true;
+
+    const authorId = thread?.author?._id || thread?.author?.id;
+    const activePersonaId = activePersona?._id || activePersona?.id;
+
+    return !!authorId && !!activePersonaId && String(authorId) === String(activePersonaId);
+  }, [thread, activePersona]);
 
   useEffect(() => {
     fetchThreadAndInitialComments();
@@ -370,6 +420,15 @@ export default function ThreadDetail() {
   const EmbeddedThreadPreview = ({ item, onOpen }) => {
     if (!item) return null;
 
+    // ✅ deleted placeholder
+    if (item?.isDeleted) {
+      return (
+        <div className="mt-3 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+          This post was deleted.
+        </div>
+      );
+    }
+
     const authorUsername = item?.author?.username;
     const authorLink = authorUsername ? `/@${authorUsername}` : null;
     const images = Array.isArray(item?.images) ? item.images : [];
@@ -431,6 +490,8 @@ export default function ThreadDetail() {
     );
   };
 
+
+
   // ✅ Replace `const CommentItem = (...) => { ... }` with a render function:
   const renderCommentItem = (comment, depth = 0, parentCommentId = null) => {
     if (!comment) return null;
@@ -451,7 +512,7 @@ export default function ThreadDetail() {
 
     return (
       <div
-        id={`comment-${commentId}`} // ✅ add anchor target
+        id={`comment-${commentId}`}
         className={focusedCommentId === String(commentId) ? 'ring-2 ring-sky-500 rounded-xl' : ''}
       >
         <div className="relative">
@@ -530,8 +591,11 @@ export default function ThreadDetail() {
                 {replyingTo?.commentId === commentId && (
                   <div className="mt-3 flex gap-2" dir="ltr">
                     <Avatar className="h-8 w-8 flex-shrink-0">
-                      <AvatarImage src={user?.profilePic} alt={user?.username} />
-                      <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
+                      <AvatarImage
+                        src={commenterIdentity.profilePic ? commenterIdentity.profilePic : undefined}
+                        alt={commenterIdentity.username || 'User'}
+                      />
+                      <AvatarFallback>{getInitials(commenterIdentity.username)}</AvatarFallback>
                     </Avatar>
 
                     <div className="flex-1 space-y-2">
@@ -853,8 +917,12 @@ export default function ThreadDetail() {
             <form onSubmit={handleCommentSubmit} className="space-y-3">
               <div className="flex space-x-3">
                 <Avatar className="h-10 w-10 flex-shrink-0">
-                  <AvatarImage src={user?.profilePic} alt={user?.username} />
-                  <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
+                  <AvatarImage
+                    // ✅ important: use undefined when missing (avoid src="")
+                    src={commenterIdentity.profilePic ? commenterIdentity.profilePic : undefined}
+                    alt={commenterIdentity.username || 'User'}
+                  />
+                  <AvatarFallback>{getInitials(commenterIdentity.username)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <MentionTextarea

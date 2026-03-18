@@ -1,4 +1,5 @@
 const Thread = require('../models/Thread');
+const Comment = require('../models/Comment');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const { deleteMultipleFromCloudinary } = require('../utils/cloudinary');
@@ -21,32 +22,45 @@ const formatPersona = (p) => ({
 });
 
 const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
+  const isDel = !!thread?.isDeleted;
+
   const t = {
-    id: thread._id,
-    type: thread.type || 'thread',
-    content: thread.content,
-    images: thread.images,
-    likes: thread.likes,
+    id: thread?._id,
+    type: thread?.type || 'thread',
 
-    // ✅ use stored likesCount when present
-    likesCount:
-      typeof thread.likesCount === 'number'
-        ? thread.likesCount
-        : (thread.likes?.length || 0),
+    // ✅ include deletion status for embedded previews
+    isDeleted: isDel,
 
-    commentCount: thread.commentCount || 0,
-    repostCount: thread.repostCount || 0,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
+    // ✅ if deleted, don't leak content/media
+    content: isDel ? '' : (thread?.content || ''),
+    images: isDel ? [] : (thread?.images || []),
+
+    likes: thread?.likes || [],
+
+    likesCount: isDel
+      ? 0
+      : (typeof thread?.likesCount === 'number'
+          ? thread.likesCount
+          : (thread?.likes?.length || 0)),
+
+    commentCount: isDel ? 0 : (thread?.commentCount || 0),
+    repostCount: isDel ? 0 : (thread?.repostCount || 0),
+
+    createdAt: thread?.createdAt,
+    updatedAt: thread?.updatedAt,
   };
 
-  t.author = formatPersona(thread.authorPersona);
+  // author can still be shown; if missing, formatPersona tolerates it
+  t.author = formatPersona(thread?.authorPersona);
 
-  if (viewerPersonaId) {
+  if (viewerPersonaId && !isDel) {
     t.isLiked = (thread.likes || []).some((id) => id.toString() === viewerPersonaId.toString());
+  } else {
+    t.isLiked = false;
   }
 
-  t.isOwner = ownedPersonaIds.includes(thread.authorPersona?._id?.toString());
+  // ✅ owner means "active persona is the author" (unchanged)
+  t.isOwner = !!viewerPersonaId && thread?.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
   return t;
 };
@@ -93,6 +107,325 @@ const formatFeedItem = (doc, viewerPersonaId, ownedPersonaIds, repostedTargetIdS
     isReposted: viewerPersonaId ? repostedTargetIdSet.has(docId) : false,
   };
 };
+
+const FOR_YOU_WINDOW_DAYS = 14;
+const FOR_YOU_MIN_CANDIDATES = 200;
+const FOR_YOU_MAX_CANDIDATES = 500;
+const SCOPED_FEED_MIN_CANDIDATES = 120;
+const SCOPED_FEED_MAX_CANDIDATES = 400;
+
+const addWeight = (map, key, amount) => {
+  if (!key || !amount) return;
+  const normalized = key.toString();
+  map.set(normalized, (map.get(normalized) || 0) + amount);
+};
+
+const addWeights = (map, keys, amount) => {
+  for (const key of keys || []) addWeight(map, key, amount);
+};
+
+const getPrimaryScoringThread = (doc) => {
+  if (!doc) return null;
+  if ((doc.type === 'repost' || doc.type === 'quote') && doc.repostOf && typeof doc.repostOf === 'object') {
+    return resolveDisplayThread(doc.repostOf);
+  }
+  return doc;
+};
+
+const getPrimaryAuthorId = (doc) => {
+  const primary = getPrimaryScoringThread(doc) || doc;
+  const authorId = typeof primary?.authorPersona === 'object' ? primary?.authorPersona?._id : primary?.authorPersona;
+  return authorId ? authorId.toString() : null;
+};
+
+const getSurfaceAuthorId = (doc) => {
+  const authorId = typeof doc?.authorPersona === 'object' ? doc?.authorPersona?._id : doc?.authorPersona;
+  return authorId ? authorId.toString() : null;
+};
+
+const collectScoringHashtags = (doc) => {
+  const primary = getPrimaryScoringThread(doc);
+  const tags = new Set();
+
+  for (const tag of doc?.hashtags || []) {
+    if (tag) tags.add(String(tag).toLowerCase());
+  }
+  for (const tag of primary?.hashtags || []) {
+    if (tag) tags.add(String(tag).toLowerCase());
+  }
+
+  return [...tags];
+};
+
+const scoreRecency = (createdAt) => {
+  if (!createdAt) return 0;
+  const ageHours = Math.max(0, (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60));
+  return 90 / (1 + ageHours / 6);
+};
+
+const scoreEngagement = (doc) => {
+  const primary = getPrimaryScoringThread(doc) || doc;
+  const likes = Number(primary?.likesCount || 0);
+  const comments = Number(primary?.commentCount || 0);
+  const reposts = Number(primary?.repostCount || 0);
+
+  return Math.log1p(likes) * 8 + Math.log1p(comments) * 12 + Math.log1p(reposts) * 14;
+};
+
+const buildViewerFeedFeatures = async (ctx) => {
+  const viewerPersonaId = ctx?.activePersonaId;
+
+  const authorAffinity = new Map();
+  const hashtagAffinity = new Map();
+
+  const [viewerPersona, likedThreads, myComments, myReposts] = await Promise.all([
+    Persona.findById(viewerPersonaId).select('following').lean(),
+    Thread.find({ likes: viewerPersonaId, isDeleted: false })
+      .select('authorPersona hashtags')
+      .sort({ createdAt: -1 })
+      .limit(80)
+      .lean(),
+    Comment.find({ authorPersona: viewerPersonaId, isDeleted: false })
+      .select('threadId')
+      .sort({ createdAt: -1 })
+      .limit(80)
+      .lean(),
+    Thread.find({ authorPersona: viewerPersonaId, type: { $in: ['repost', 'quote'] }, isDeleted: false })
+      .select('repostOf hashtags')
+      .populate('repostOf', 'authorPersona hashtags')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean(),
+  ]);
+
+  const followingSet = new Set((viewerPersona?.following || []).map((id) => id.toString()));
+
+  for (const thread of likedThreads) {
+    const authorId = typeof thread.authorPersona === 'object' ? thread.authorPersona?._id : thread.authorPersona;
+    if (authorId) addWeight(authorAffinity, authorId, 3);
+    addWeights(hashtagAffinity, thread.hashtags, 1);
+  }
+
+  const commentThreadIds = [
+    ...new Set((myComments || []).map((comment) => comment.threadId?.toString?.() || comment.threadId).filter(Boolean)),
+  ].slice(0, 80);
+
+  if (commentThreadIds.length) {
+    const commentedThreads = await Thread.find({ _id: { $in: commentThreadIds }, isDeleted: false })
+      .select('authorPersona hashtags')
+      .lean();
+
+    for (const thread of commentedThreads) {
+      const authorId = typeof thread.authorPersona === 'object' ? thread.authorPersona?._id : thread.authorPersona;
+      if (authorId) addWeight(authorAffinity, authorId, 4);
+      addWeights(hashtagAffinity, thread.hashtags, 1.5);
+    }
+  }
+
+  for (const repost of myReposts) {
+    const original = repost?.repostOf;
+    const authorId = typeof original?.authorPersona === 'object' ? original?.authorPersona?._id : original?.authorPersona;
+    if (authorId) addWeight(authorAffinity, authorId, 5);
+    addWeights(hashtagAffinity, original?.hashtags, 2);
+    addWeights(hashtagAffinity, repost?.hashtags, 1);
+  }
+
+  return {
+    followingSet,
+    authorAffinity,
+    hashtagAffinity,
+    batch: ctx?.user?.batch || '',
+    department: ctx?.user?.department || '',
+  };
+};
+
+const scoreThreadForViewer = (doc, features) => {
+  const primary = getPrimaryScoringThread(doc) || doc;
+  const author = typeof primary?.authorPersona === 'object' ? primary?.authorPersona : null;
+  const authorId = getPrimaryAuthorId(doc);
+  const hashtags = collectScoringHashtags(doc);
+
+  let score = 0;
+  score += scoreRecency(doc?.createdAt);
+  score += scoreEngagement(doc);
+
+  if (authorId && features.followingSet.has(authorId)) score += 40;
+  if (authorId) score += features.authorAffinity.get(authorId) || 0;
+
+  if (author?.type === 'public') {
+    if (features.batch && author?.batch === features.batch) score += 24;
+    if (features.department && author?.department === features.department) score += 12;
+  }
+
+  for (const tag of hashtags) {
+    score += features.hashtagAffinity.get(tag) || 0;
+  }
+
+  if (doc?.type === 'quote') score += 6;
+  if (doc?.type === 'repost') score -= 3;
+
+  return score;
+};
+
+const diversifyRankedThreads = (items) => {
+  const remaining = [...items];
+  const result = [];
+
+  while (remaining.length) {
+    let pickIndex = 0;
+
+    if (result.length >= 2) {
+      const prev1 = getPrimaryAuthorId(result[result.length - 1]);
+      const prev2 = getPrimaryAuthorId(result[result.length - 2]);
+
+      if (prev1 && prev1 === prev2) {
+        const foundIndex = remaining.findIndex((candidate, index) => {
+          if (index > 7) return false;
+          return getPrimaryAuthorId(candidate) !== prev1;
+        });
+
+        if (foundIndex > 0) pickIndex = foundIndex;
+      }
+    }
+
+    result.push(remaining.splice(pickIndex, 1)[0]);
+  }
+
+  return result;
+};
+
+const isVisibleRankedCandidate = (thread, blockedSet) => {
+  if (!thread?.authorPersona) return false;
+  if (thread.authorPersona.isConfigured === false) return false;
+  if (thread.type !== 'thread' && !thread.repostOf) return false;
+
+  const involved = collectPersonaIdsInThreadDoc(thread);
+  for (const id of involved) {
+    if (blockedSet.has(id)) return false;
+  }
+
+  return true;
+};
+
+const getCandidateLimit = (page, limit, multiplier = 6) => {
+  return Math.min(
+    Math.max(page * limit * multiplier, SCOPED_FEED_MIN_CANDIDATES),
+    SCOPED_FEED_MAX_CANDIDATES
+  );
+};
+
+const getViewerRepostedTargetIdSet = async (viewerPersonaId, targets) => {
+  const repostedTargetIdSet = new Set();
+  if (!viewerPersonaId || !targets.length) return repostedTargetIdSet;
+
+  const myReposts = await Thread.find({
+    type: 'repost',
+    authorPersona: viewerPersonaId,
+    repostOf: { $in: targets },
+    isDeleted: false,
+  })
+    .select('repostOf')
+    .lean();
+
+  for (const repost of myReposts) repostedTargetIdSet.add(repost.repostOf.toString());
+  return repostedTargetIdSet;
+};
+
+const getRankedFeedPage = async ({ query, page, limit, blockedSet, viewerPersonaId, scoreThread, candidateLimit }) => {
+  const skip = (page - 1) * limit;
+
+  const candidates = await Thread.find({
+    ...query,
+    isDeleted: false,
+    type: { $in: ['thread', 'repost', 'quote'] },
+  })
+    .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type isConfigured')
+    .populate(getRepostPopulate())
+    .sort({ createdAt: -1 })
+    .limit(candidateLimit)
+    .lean();
+
+  const visibleCandidates = candidates.filter((thread) => isVisibleRankedCandidate(thread, blockedSet));
+
+  const ranked = diversifyRankedThreads(
+    visibleCandidates
+      .map((thread) => ({ thread, score: scoreThread(thread) }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return new Date(b.thread.createdAt).getTime() - new Date(a.thread.createdAt).getTime();
+      })
+      .map((item) => item.thread)
+  );
+
+  const total = ranked.length;
+  const pageDocs = ranked.slice(skip, skip + limit);
+  const targets = pageDocs.map((thread) => thread._id).filter(Boolean);
+  const repostedTargetIdSet = await getViewerRepostedTargetIdSet(viewerPersonaId, targets);
+
+  return {
+    total,
+    pageDocs,
+    repostedTargetIdSet,
+  };
+};
+
+const scoreFollowingFeedThread = (doc, features) => {
+  const surfaceAuthorId = getSurfaceAuthorId(doc);
+  const primaryAuthorId = getPrimaryAuthorId(doc);
+  const hashtags = collectScoringHashtags(doc);
+
+  let score = 0;
+  score += scoreRecency(doc?.createdAt) * 1.1;
+  score += scoreEngagement(doc) * 0.85;
+
+  if (surfaceAuthorId && features.followingSet.has(surfaceAuthorId)) score += 90;
+  if (primaryAuthorId && primaryAuthorId !== surfaceAuthorId && features.followingSet.has(primaryAuthorId)) score += 18;
+  if (primaryAuthorId) score += (features.authorAffinity.get(primaryAuthorId) || 0) * 1.4;
+
+  for (const tag of hashtags) {
+    score += (features.hashtagAffinity.get(tag) || 0) * 1.1;
+  }
+
+  if (doc?.type === 'thread') score += 8;
+  if (doc?.type === 'quote') score += 5;
+  if (doc?.type === 'repost') score -= 6;
+
+  return score;
+};
+
+const scoreBatchFeedThread = (doc, features) => {
+  const surfaceAuthorId = getSurfaceAuthorId(doc);
+  const primaryAuthorId = getPrimaryAuthorId(doc);
+  const hashtags = collectScoringHashtags(doc);
+
+  let score = 0;
+  score += scoreRecency(doc?.createdAt) * 1.05;
+  score += scoreEngagement(doc) * 0.95;
+
+  if (surfaceAuthorId && features.followingSet.has(surfaceAuthorId)) score += 28;
+  if (primaryAuthorId) score += (features.authorAffinity.get(primaryAuthorId) || 0) * 1.8;
+
+  for (const tag of hashtags) {
+    score += (features.hashtagAffinity.get(tag) || 0) * 1.25;
+  }
+
+  if (doc?.type === 'thread') score += 10;
+  if (doc?.type === 'quote') score += 4;
+  if (doc?.type === 'repost') score -= 7;
+
+  return score;
+};
+
+const getRepostPopulate = () => ({
+  path: 'repostOf',
+  populate: [
+    { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type isConfigured' },
+    {
+      path: 'repostOf',
+      populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type isConfigured' },
+    },
+  ],
+});
 
 // POST /api/threads
 exports.createThread = async (req, res) => {
@@ -199,53 +532,74 @@ exports.getAllThreads = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const query = { isDeleted: false };
-    const total = await Thread.countDocuments(query);
-
-    const threads = await Thread.find(query)
-      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
-      .populate({
-        path: 'repostOf',
-        match: { isDeleted: false },
-        populate: [
-          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
-          {
-            path: 'repostOf',
-            match: { isDeleted: false },
-            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
-          },
-        ],
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    let viewerPersonaId = null;
-    let ownedPersonaIds = [];
-    let blockedSet = new Set();
-
-    if (req.user) {
-      const ctx = await getViewerContext(req.user.id);
-      viewerPersonaId = ctx?.activePersonaId || null;
-      ownedPersonaIds = ctx?.ownedPersonaIds || [];
-      blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // ✅ filter blocked content (author + nested repost chains)
-    const visible = threads.filter((t) => {
-      if (!viewerPersonaId) return true;
-      const involved = collectPersonaIdsInThreadDoc(t);
+    const viewerPersonaId = ctx.activePersonaId;
+    const ownedPersonaIds = ctx.ownedPersonaIds || [];
+    const blockedSet = await getBlockedPersonaIdSetForViewer(viewerPersonaId);
+    const features = await buildViewerFeedFeatures(ctx);
+
+    const candidateLimit = Math.min(
+      Math.max(page * limit * 8, FOR_YOU_MIN_CANDIDATES),
+      FOR_YOU_MAX_CANDIDATES
+    );
+    const windowStart = new Date(Date.now() - FOR_YOU_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+    let candidates = await Thread.find({
+      isDeleted: false,
+      type: { $in: ['thread', 'repost', 'quote'] },
+      createdAt: { $gte: windowStart },
+    })
+      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type isConfigured')
+      .populate(getRepostPopulate())
+      .sort({ createdAt: -1 })
+      .limit(candidateLimit)
+      .lean();
+
+    if (!candidates.length) {
+      candidates = await Thread.find({
+        isDeleted: false,
+        type: { $in: ['thread', 'repost', 'quote'] },
+      })
+        .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type isConfigured')
+        .populate(getRepostPopulate())
+        .sort({ createdAt: -1 })
+        .limit(candidateLimit)
+        .lean();
+    }
+
+    const visibleCandidates = candidates.filter((thread) => {
+      if (!thread?.authorPersona) return false;
+      if (thread.authorPersona.isConfigured === false) return false;
+      if (thread.type !== 'thread' && !thread.repostOf) return false;
+
+      const involved = collectPersonaIdsInThreadDoc(thread);
       for (const id of involved) {
         if (blockedSet.has(id)) return false;
       }
+
       return true;
     });
 
-    const targets = visible.map((t) => t._id).filter(Boolean);
+    const ranked = diversifyRankedThreads(
+      visibleCandidates
+        .map((thread) => ({ thread, score: scoreThreadForViewer(thread, features) }))
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return new Date(b.thread.createdAt).getTime() - new Date(a.thread.createdAt).getTime();
+        })
+        .map((item) => item.thread)
+    );
+
+    const total = ranked.length;
+    const pageDocs = ranked.slice(skip, skip + limit);
+    const targets = pageDocs.map((thread) => thread._id).filter(Boolean);
 
     const repostedTargetIdSet = new Set();
-    if (viewerPersonaId && targets.length) {
+    if (targets.length) {
       const myReposts = await Thread.find({
         type: 'repost',
         authorPersona: viewerPersonaId,
@@ -255,12 +609,12 @@ exports.getAllThreads = async (req, res) => {
         .select('repostOf')
         .lean();
 
-      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
+      for (const repost of myReposts) repostedTargetIdSet.add(repost.repostOf.toString());
     }
 
-    const formatted = visible
-      .filter((t) => (t.type === 'thread' ? true : !!t.repostOf))
-      .map((t) => formatFeedItem(t, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet));
+    const formatted = pageDocs.map((thread) =>
+      formatFeedItem(thread, viewerPersonaId, ownedPersonaIds, repostedTargetIdSet)
+    );
 
     return res.status(200).json({
       success: true,
@@ -323,12 +677,12 @@ exports.getUserThreads = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -404,12 +758,12 @@ exports.getThreadById = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -476,7 +830,8 @@ exports.deleteThread = async (req, res) => {
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
 
-    if (!ctx.ownedPersonaIds.includes(thread.authorPersona.toString())) {
+    // ✅ CHANGE: only allow delete if the ACTIVE persona authored it
+    if (thread.authorPersona.toString() !== ctx.activePersonaId.toString()) {
       return res.status(403).json({ success: false, message: 'Not authorized to delete this thread' });
     }
 
@@ -695,12 +1050,10 @@ exports.createQuoteRepost = async (req, res) => {
     await quote.populate('authorPersona', 'handle displayName profilePic rollNumber department batch type');
     await quote.populate({
       path: 'repostOf',
-      match: { isDeleted: false },
       populate: [
         { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
         {
           path: 'repostOf',
-          match: { isDeleted: false },
           populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
         },
       ],
@@ -722,7 +1075,6 @@ exports.getFollowingFeed = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
@@ -749,56 +1101,20 @@ exports.getFollowingFeed = async (req, res) => {
 
     const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
 
-    const baseQuery = { authorPersona: { $in: followingPersonaIds }, isDeleted: false };
-    const total = await Thread.countDocuments(baseQuery);
-
-    const threads = await Thread.find(baseQuery)
-      .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
-      .populate({
-        path: 'repostOf',
-        match: { isDeleted: false },
-        populate: [
-          { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
-          {
-            path: 'repostOf',
-            match: { isDeleted: false },
-            populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
-          },
-        ],
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    // ✅ filter blocked content (author + nested repost chains)
-    const visible = threads.filter((t) => {
-      const involved = collectPersonaIdsInThreadDoc(t);
-      for (const id of involved) {
-        if (blockedSet.has(id)) return false;
-      }
-      return true;
+    const features = await buildViewerFeedFeatures(ctx);
+    const { total, pageDocs, repostedTargetIdSet } = await getRankedFeedPage({
+      query: { authorPersona: { $in: followingPersonaIds } },
+      page,
+      limit,
+      blockedSet,
+      viewerPersonaId: ctx.activePersonaId,
+      scoreThread: (thread) => scoreFollowingFeedThread(thread, features),
+      candidateLimit: getCandidateLimit(page, limit, 6),
     });
 
-    const targets = visible.map((t) => t._id).filter(Boolean);
-
-    const repostedTargetIdSet = new Set();
-    if (targets.length) {
-      const myReposts = await Thread.find({
-        type: 'repost',
-        authorPersona: ctx.activePersonaId,
-        repostOf: { $in: targets },
-        isDeleted: false,
-      })
-        .select('repostOf')
-        .lean();
-
-      for (const r of myReposts) repostedTargetIdSet.add(r.repostOf.toString());
-    }
-
-    const formatted = visible
-      .filter((t) => t.type === 'thread' || !!t.repostOf)
-      .map((t) => formatFeedItem(t, ctx.activePersonaId, ctx.ownedPersonaIds, repostedTargetIdSet));
+    const formatted = pageDocs.map((thread) =>
+      formatFeedItem(thread, ctx.activePersonaId, ctx.ownedPersonaIds, repostedTargetIdSet)
+    );
 
     return res.status(200).json({
       success: true,
@@ -841,12 +1157,12 @@ exports.getMyThreads = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -986,12 +1302,12 @@ exports.getThreadsByHashtag = async (req, res) => {
       .populate('authorPersona', 'handle displayName profilePic rollNumber department batch type')
       .populate({
         path: 'repostOf',
-        match: { isDeleted: false },
+        // ❌ remove match: { isDeleted: false },
         populate: [
           { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           {
             path: 'repostOf',
-            match: { isDeleted: false },
+            // ❌ remove match: { isDeleted: false },
             populate: { path: 'authorPersona', select: 'handle displayName profilePic rollNumber department batch type' },
           },
         ],
@@ -1043,5 +1359,94 @@ exports.getThreadsByHashtag = async (req, res) => {
   } catch (error) {
     console.error('getThreadsByHashtag error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ GET /api/threads/feed/batch
+// Returns threads from personas in viewer's same (batch + department), e.g. FA22-BCS
+exports.getBatchFeed = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // keep behavior consistent with other feeds
+    if (ctx.activeMode === 'anon') {
+      const ok = await assertAnonConfigured(ctx.user);
+      if (!ok) {
+        return res.status(409).json({
+          success: false,
+          setupRequired: true,
+          message: 'Anonymous persona setup required',
+        });
+      }
+    }
+
+    // viewer's batch/department come from User
+    const viewerUser =
+      ctx.user?.department && ctx.user?.batch
+        ? ctx.user
+        : await User.findById(req.user.id).select('department batch').lean();
+
+    const department = viewerUser?.department || '';
+    const batch = viewerUser?.batch || '';
+
+    if (!department || !batch) {
+      return res.status(400).json({ success: false, message: 'Department/batch not found for viewer' });
+    }
+
+    // ✅ only public + configured personas for "your batch"
+    const personaIds = await Persona.distinct('_id', {
+      type: 'public',
+      isConfigured: true,
+      department,
+      batch,
+    });
+
+    if (!personaIds.length) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        total: 0,
+        page,
+        pages: 0,
+        threads: [],
+        message: `No threads from ${batch}-${department} yet.`,
+      });
+    }
+
+    const blockedSet = await getBlockedPersonaIdSetForViewer(ctx.activePersonaId);
+
+    const features = await buildViewerFeedFeatures(ctx);
+    const { total, pageDocs, repostedTargetIdSet } = await getRankedFeedPage({
+      query: { authorPersona: { $in: personaIds } },
+      page,
+      limit,
+      blockedSet,
+      viewerPersonaId: ctx.activePersonaId,
+      scoreThread: (thread) => scoreBatchFeedThread(thread, features),
+      candidateLimit: getCandidateLimit(page, limit, 6),
+    });
+
+    const threads = pageDocs.map((thread) =>
+      formatFeedItem(thread, ctx.activePersonaId, ctx.ownedPersonaIds, repostedTargetIdSet)
+    );
+
+    return res.status(200).json({
+      success: true,
+      department,
+      batch,
+      batchKey: `${batch}-${department}`,
+      count: threads.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      threads,
+    });
+  } catch (error) {
+    console.error('getBatchFeed error:', error);
+    return res.status(500).json({ success: false, message: 'Server error while fetching batch feed', error: error.message });
   }
 };

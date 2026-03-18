@@ -43,7 +43,8 @@ const formatComment = (comment, viewerPersonaId = null, ownedPersonaIds = [], in
     formatted.isLiked = comment.likes.some((likeId) => likeId.toString() === viewerPersonaId.toString());
   }
 
-  formatted.isOwner = ownedPersonaIds.includes(comment.authorPersona?._id?.toString());
+  formatted.isOwner =
+    !!viewerPersonaId && comment.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
   if (includePreview && previewReplies.length > 0) {
     formatted.previewReplies = previewReplies.map((reply) =>

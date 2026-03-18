@@ -34,7 +34,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Bark API is running',
+    message: 'Personas API is running',
     timestamp: new Date().toISOString(),
   });
 });
@@ -62,5 +62,5 @@ initSocket(server);
 const PORT = process.env.PORT;
 
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  console.log(`Personas API is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
 });

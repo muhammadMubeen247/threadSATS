@@ -76,5 +76,6 @@ personaSchema.index({ ownerUserId: 1, type: 1 }, { unique: true });
 
 // ✅ fast lookup for "public" rollNumber searches
 personaSchema.index({ type: 1, rollNumber: 1 });
+personaSchema.index({ type: 1, isConfigured: 1, batch: 1, department: 1 });
 
 module.exports = mongoose.model('Persona', personaSchema);
