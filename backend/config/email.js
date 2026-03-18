@@ -12,9 +12,9 @@ const transporter = nodemailer.createTransport({
 
 const sendOTPEmail = async (email, otp) => {
   const mailOptions = {
-    from: `"Bark" <${process.env.EMAIL_USER}>`,
+    from: `"Personas" <${process.env.EMAIL_USER}>`,
     to: email,
-    subject: 'Verify Your COMSATS Email - Bark OTP Verification',
+    subject: 'Verify Your COMSATS Email - Personas OTP Verification',
     html: `<!DOCTYPE html>
       <html>
         <head>
@@ -30,18 +30,18 @@ const sendOTPEmail = async (email, otp) => {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🎓 Bark</h1>
+              <h1>Personas</h1>
               <p>COMSATS Student Network</p>
             </div>
             <div class="content">
-              <h2>Welcome to Bark!</h2>
+              <h2>Welcome to Personas!</h2>
               <p>Thank you for joining the COMSATS student community. To complete your registration, please verify your email address.</p>
               <p><strong>Your OTP Code:</strong></p>
               <div class="otp-box">${otp}</div>
               <p>This code will expire in <strong>10 minutes</strong>.</p>
               <p>If you didn't request this code, please ignore this email.</p>
               <div class="footer">
-                <p>© 2025 Bark - COMSATS University Student Network</p>
+                <p>© 2025 Personas - COMSATS University Student Network</p>
                 <p>This is an automated message, please do not reply.</p>
               </div>
             </div>
@@ -63,9 +63,9 @@ const sendOTPEmail = async (email, otp) => {
 // ✅ new: password reset OTP email
 const sendPasswordResetOTPEmail = async (email, otp) => {
   const mailOptions = {
-    from: `"Bark" <${process.env.EMAIL_USER}>`,
+    from: `"Personas" <${process.env.EMAIL_USER}>`,
     to: email,
-    subject: 'Bark Password Reset OTP',
+    subject: 'Personas Password Reset OTP',
     html: `<!DOCTYPE html>
       <html>
         <head>
@@ -84,12 +84,12 @@ const sendPasswordResetOTPEmail = async (email, otp) => {
               <h2>Password reset</h2>
             </div>
             <div class="content">
-              <p>Use this OTP to reset your Bark password:</p>
+              <p>Use this OTP to reset your Personas password:</p>
               <div class="otp-box">${otp}</div>
               <p>This code will expire in <strong>10 minutes</strong>.</p>
               <p>If you didn't request a password reset, you can ignore this email.</p>
               <div class="footer">
-                <p>© 2025 Bark</p>
+                <p>© 2025 Personas</p>
               </div>
             </div>
           </div>

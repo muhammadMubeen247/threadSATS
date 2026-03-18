@@ -2,10 +2,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Search, Bell, User, LogOut, Settings } from 'lucide-react';
 import { ThemeToggle } from '../ThemeToggle';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input'; // ✅ needed for anon setup dialog
+import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
-import { useEffect, useMemo, useState } from 'react'; // ✅ remove useRef
+import { useEffect, useMemo, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,11 +21,11 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 
-// ❌ remove (unused)
-// import Sidebar from '@/components/layout/Sidebar';
-
 import { connectSocket, disconnectSocket, getSocket } from '@/socket/client';
 import { useNotificationsStore } from '@/store/notificationsStore';
+
+// ✅ add
+import personasIcon from '@/assets/personas_icon.png';
 
 export default function Navbar() {
   const navigate = useNavigate();
@@ -217,10 +217,13 @@ export default function Navbar() {
         {/* Left: Logo (no burger on mobile now) */}
         <div className="flex items-center gap-2">
           <Link to="/home" className="flex items-center space-x-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-              B
-            </div>
-            <span className="hidden font-bold sm:inline-block">Bark</span>
+            {/* ✅ replaced P box with image */}
+            <img
+              src={personasIcon}
+              alt="Personas"
+              className="h-16 w-16 rounded-lg object-contain"
+            />
+            <span className="hidden font-bold text-lg sm:inline-block">Personas</span>
           </Link>
         </div>
 
