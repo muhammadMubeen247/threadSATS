@@ -151,7 +151,8 @@ const formatThreadFromDoc = (thread, viewerPersonaId = null, ownedPersonaIds = [
   if (viewerPersonaId) {
     formatted.isLiked = (thread.likes || []).some((likeId) => likeId.toString() === viewerPersonaId.toString());
   }
-  formatted.isOwner = ownedPersonaIds.includes(thread.authorPersona?._id?.toString());
+  formatted.isOwner =
+    !!viewerPersonaId && thread.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
   return formatted;
 };
@@ -181,7 +182,8 @@ const formatCommentFromDoc = (comment, viewerPersonaId = null, ownedPersonaIds =
   if (viewerPersonaId) {
     formatted.isLiked = (comment.likes || []).some((likeId) => likeId.toString() === viewerPersonaId.toString());
   }
-  formatted.isOwner = ownedPersonaIds.includes(comment.authorPersona?._id?.toString());
+  formatted.isOwner =
+    !!viewerPersonaId && comment.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
   // attach thread preview if populated
   if (comment.threadId && typeof comment.threadId === 'object') {

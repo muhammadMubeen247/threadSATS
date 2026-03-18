@@ -65,6 +65,9 @@ const threadSchema = new mongoose.Schema(
 threadSchema.index({ authorPersona: 1, createdAt: -1 });
 threadSchema.index({ createdAt: -1 });
 threadSchema.index({ isDeleted: 1 });
+threadSchema.index({ isDeleted: 1, createdAt: -1 });
+threadSchema.index({ authorPersona: 1, isDeleted: 1, createdAt: -1 });
+threadSchema.index({ authorPersona: 1, type: 1, isDeleted: 1, createdAt: -1 });
 threadSchema.index({ hashtags: 1, createdAt: -1 });
 
 // ✅ helpful for hashtag "top" sorting
