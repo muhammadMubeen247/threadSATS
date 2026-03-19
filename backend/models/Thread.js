@@ -31,6 +31,19 @@ const threadSchema = new mongoose.Schema(
       },
     ],
 
+    videos: [
+      {
+        url: { type: String, required: true },
+        publicId: { type: String, required: true },
+        thumbnail: { type: String },
+        width: Number,
+        height: Number,
+        format: String,
+        duration: Number,
+        bytes: Number,
+      },
+    ],
+
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
 
     // ✅ NEW: stored likesCount for sorting

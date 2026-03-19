@@ -883,6 +883,23 @@ export default function ThreadDetail() {
                   </div>
                 ) : null}
 
+                {/* Videos */}
+                {Array.isArray(thread.videos) && thread.videos.length > 0 ? (
+                  <div className="mt-3 grid gap-2 grid-cols-1">
+                    {thread.videos.map((vid, index) => (
+                      <video
+                        key={index}
+                        src={vid.url}
+                        poster={vid.thumbnail}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="w-full rounded-lg"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
                 {/* Actions */}
                 <div className="mt-4 flex items-center gap-6 text-sm text-muted-foreground">
                   <button

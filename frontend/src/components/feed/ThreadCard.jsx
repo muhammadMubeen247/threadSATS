@@ -428,6 +428,24 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
               </div>
             ) : null}
 
+            {/* Videos */}
+            {Array.isArray(thread?.videos) && thread.videos.length > 0 ? (
+              <div className="mt-3 grid gap-2 grid-cols-1">
+                {thread.videos.map((vid, idx) => (
+                  <video
+                    key={vid.url + idx}
+                    src={vid.url}
+                    poster={vid.thumbnail}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full rounded-lg"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ))}
+              </div>
+            ) : null}
+
             {/* Actions row */}
             <div className="mt-4 flex items-center gap-6 text-muted-foreground">
               <button onClick={handleLike} className="flex items-center gap-2 hover:text-red-500 transition-colors group">

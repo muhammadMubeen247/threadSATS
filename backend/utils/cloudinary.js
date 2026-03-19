@@ -102,8 +102,47 @@ const getImageDetails = async (publicId) => {
   }
 };
 
+/**
+ * Upload video to Cloudinary from buffer (minimal transforms for free tier)
+ * @param {Buffer} buffer - Video file buffer
+ * @param {String} folder - Cloudinary folder name
+ * @returns {Promise<Object>} - Upload result
+ */
+const uploadVideoToCloudinary = (buffer, folder = 'threadsats') => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'video',
+        // No eager transformations to conserve free tier credits
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          // Derive poster thumbnail by swapping extension to .jpg (free, no transform cost)
+          const posterUrl = result.secure_url.replace(/\.[^.]+$/, '.jpg');
+          resolve({
+            url: result.secure_url,
+            publicId: result.public_id,
+            thumbnail: posterUrl,
+            width: result.width,
+            height: result.height,
+            format: result.format,
+            duration: result.duration || 0,
+            bytes: result.bytes,
+          });
+        }
+      }
+    );
+
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+};
+
 module.exports = {
   uploadToCloudinary,
+  uploadVideoToCloudinary,
   deleteFromCloudinary,
   deleteMultipleFromCloudinary,
   getImageDetails,

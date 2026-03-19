@@ -34,6 +34,7 @@ const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
     // ✅ if deleted, don't leak content/media
     content: isDel ? '' : (thread?.content || ''),
     images: isDel ? [] : (thread?.images || []),
+    videos: isDel ? [] : (thread?.videos || []),
 
     likes: thread?.likes || [],
 
@@ -430,7 +431,7 @@ const getRepostPopulate = () => ({
 // POST /api/threads
 exports.createThread = async (req, res) => {
   try {
-    const { content, images } = req.body;
+    const { content, images, videos } = req.body;
 
     const ctx = await getViewerContext(req.user.id);
     if (!ctx) return res.status(404).json({ success: false, message: 'User not found' });
@@ -454,6 +455,7 @@ exports.createThread = async (req, res) => {
       content,
       authorPersona: ctx.activePersonaId,
       images: images || [],
+      videos: videos || [],
       mentions: mentionedPersonaIds,
       hashtags,
     });
@@ -835,10 +837,14 @@ exports.deleteThread = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to delete this thread' });
     }
 
-    if (thread.images && thread.images.length > 0) {
-      const publicIds = thread.images.map((img) => img.publicId);
+    const mediaPublicIds = [
+      ...(thread.images || []).map((img) => img.publicId),
+      ...(thread.videos || []).map((vid) => vid.publicId),
+    ].filter(Boolean);
+
+    if (mediaPublicIds.length > 0) {
       try {
-        await deleteMultipleFromCloudinary(publicIds);
+        await deleteMultipleFromCloudinary(mediaPublicIds);
       } catch (cloudinaryError) {
         console.error('⚠️ Cloudinary deletion error:', cloudinaryError);
       }

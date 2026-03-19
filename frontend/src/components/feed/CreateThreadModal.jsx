@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { X, Image as ImageIcon, Film, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,7 +16,7 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
   }, [personas, activeMode]);
 
   const [content, setContent] = useState('');
-  const [selectedImages, setSelectedImages] = useState([]); // [{ file, previewUrl }]
+  const [selectedMedia, setSelectedMedia] = useState([]); // [{ file, previewUrl, type: 'image'|'video' }]
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,8 +24,11 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
   const fileInputRef = useRef(null);
 
   const MAX_CHARS = 500;
-  const MAX_IMAGES = 4;
+  const MAX_MEDIA = 4;
+  const MAX_VIDEOS = 2;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
+  const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50MB
+  const MAX_VIDEO_DURATION = 60; // seconds
 
   const getInitials = (handleOrUsername) =>
     (handleOrUsername || '').substring(0, 2).toUpperCase() || 'U';
@@ -52,14 +55,14 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, content, selectedImages]);
+  }, [isOpen, content, selectedMedia]);
 
   const resetFileInput = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const revokeAllPreviews = () => {
-    for (const item of selectedImages) {
+    for (const item of selectedMedia) {
       try {
         if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
       } catch {
@@ -71,52 +74,93 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
   const handleClose = () => {
     revokeAllPreviews();
     setContent('');
-    setSelectedImages([]);
+    setSelectedMedia([]);
     setError('');
     setIsLoading(false);
     resetFileInput();
     onClose?.();
   };
 
-  const handleImageSelect = (e) => {
+  const getVideoDuration = (file) => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(video.src);
+        resolve(video.duration);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(video.src);
+        resolve(0);
+      };
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleMediaSelect = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
     setError('');
 
-    const remaining = MAX_IMAGES - selectedImages.length;
+    const remaining = MAX_MEDIA - selectedMedia.length;
     const nextFiles = files.slice(0, Math.max(0, remaining));
+    const currentVideoCount = selectedMedia.filter((m) => m.type === 'video').length;
 
-    if (selectedImages.length + files.length > MAX_IMAGES) {
-      setError(`You can only upload up to ${MAX_IMAGES} images`);
+    if (selectedMedia.length + files.length > MAX_MEDIA) {
+      setError(`You can only upload up to ${MAX_MEDIA} media files`);
     }
 
     const accepted = [];
+    let videoCount = currentVideoCount;
+
     for (const file of nextFiles) {
-      if (!file.type?.startsWith('image/')) {
-        setError('Only image files are allowed');
+      const isImage = file.type?.startsWith('image/');
+      const isVideo = file.type?.startsWith('video/');
+
+      if (!isImage && !isVideo) {
+        setError('Only image and video files are allowed');
         continue;
       }
-      if (file.size > MAX_IMAGE_BYTES) {
+
+      if (isImage && file.size > MAX_IMAGE_BYTES) {
         setError(`Each image must be <= ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))}MB`);
         continue;
       }
+
+      if (isVideo) {
+        if (file.size > MAX_VIDEO_BYTES) {
+          setError(`Each video must be <= ${Math.floor(MAX_VIDEO_BYTES / (1024 * 1024))}MB`);
+          continue;
+        }
+        if (videoCount >= MAX_VIDEOS) {
+          setError(`Maximum ${MAX_VIDEOS} videos allowed`);
+          continue;
+        }
+        const duration = await getVideoDuration(file);
+        if (duration > MAX_VIDEO_DURATION) {
+          setError(`Video must be ${MAX_VIDEO_DURATION} seconds or less`);
+          continue;
+        }
+        videoCount++;
+      }
+
       accepted.push({
         file,
         previewUrl: URL.createObjectURL(file),
+        type: isVideo ? 'video' : 'image',
       });
     }
 
     if (accepted.length) {
-      setSelectedImages((prev) => [...prev, ...accepted]);
+      setSelectedMedia((prev) => [...prev, ...accepted]);
     }
 
-    // allow selecting the same file again later
     resetFileInput();
   };
 
-  const handleRemoveImage = (index) => {
-    setSelectedImages((prev) => {
+  const handleRemoveMedia = (index) => {
+    setSelectedMedia((prev) => {
       const item = prev[index];
       if (item?.previewUrl) {
         try {
@@ -131,16 +175,16 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
 
   const canPost = useMemo(() => {
     const hasText = content.trim().length > 0;
-    const hasImages = selectedImages.length > 0;
+    const hasMedia = selectedMedia.length > 0;
     const withinLimit = content.length <= MAX_CHARS;
-    return !isLoading && withinLimit && (hasText || hasImages);
-  }, [content, selectedImages.length, isLoading]);
+    return !isLoading && withinLimit && (hasText || hasMedia);
+  }, [content, selectedMedia.length, isLoading]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!content.trim() && selectedImages.length === 0) {
-      setError('Thread must have content or images');
+    if (!content.trim() && selectedMedia.length === 0) {
+      setError('Thread must have content or media');
       return;
     }
     if (content.length > MAX_CHARS) {
@@ -153,23 +197,24 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
 
     try {
       let uploadedImages = [];
+      let uploadedVideos = [];
 
-      // Upload images if any
-      if (selectedImages.length > 0) {
+      if (selectedMedia.length > 0) {
         const formData = new FormData();
-        selectedImages.forEach(({ file }) => formData.append('images', file));
+        selectedMedia.forEach(({ file }) => formData.append('media', file));
 
-        const uploadResponse = await api.post('/upload/images', formData, {
+        const uploadResponse = await api.post('/upload/media', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
         uploadedImages = uploadResponse?.images || [];
+        uploadedVideos = uploadResponse?.videos || [];
       }
 
-      // ✅ Option A: backend should infer persona from viewer context (active mode)
       const threadData = {
         content: content.trim(),
         images: uploadedImages,
+        videos: uploadedVideos,
       };
 
       const response = await api.post('/threads', threadData);
@@ -257,22 +302,37 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
               {content.length} / {MAX_CHARS}
             </div>
 
-            {/* Images */}
-            {selectedImages.length > 0 ? (
+            {/* Media previews */}
+            {selectedMedia.length > 0 ? (
               <div className="grid grid-cols-2 gap-2">
-                {selectedImages.map((item, index) => (
+                {selectedMedia.map((item, index) => (
                   <div key={item.previewUrl} className="relative group">
-                    <img
-                      src={item.previewUrl}
-                      alt={`Preview ${index + 1}`}
-                      className="w-full h-40 object-cover rounded-lg"
-                    />
+                    {item.type === 'video' ? (
+                      <video
+                        src={item.previewUrl}
+                        className="w-full h-40 object-cover rounded-lg"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img
+                        src={item.previewUrl}
+                        alt={`Preview ${index + 1}`}
+                        className="w-full h-40 object-cover rounded-lg"
+                      />
+                    )}
+                    {item.type === 'video' ? (
+                      <div className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white flex items-center gap-1">
+                        <Film className="h-3 w-3" /> Video
+                      </div>
+                    ) : null}
                     <Button
                       type="button"
                       variant="destructive"
                       size="icon"
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => handleRemoveImage(index)}
+                      onClick={() => handleRemoveMedia(index)}
                       disabled={isLoading}
                       title="Remove"
                     >
@@ -290,11 +350,11 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
-                onChange={handleImageSelect}
+                onChange={handleMediaSelect}
                 className="hidden"
-                disabled={isLoading || selectedImages.length >= MAX_IMAGES}
+                disabled={isLoading || selectedMedia.length >= MAX_MEDIA}
               />
 
               <Button
@@ -302,14 +362,14 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
                 variant="ghost"
                 size="icon"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || selectedImages.length >= MAX_IMAGES}
-                title="Add images"
+                disabled={isLoading || selectedMedia.length >= MAX_MEDIA}
+                title="Add media"
               >
                 <ImageIcon className="h-5 w-5" />
               </Button>
 
               <span className="text-sm text-muted-foreground">
-                {selectedImages.length} / {MAX_IMAGES}
+                {selectedMedia.length} / {MAX_MEDIA}
               </span>
             </div>
 
