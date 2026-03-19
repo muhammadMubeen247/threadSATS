@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
@@ -8,10 +9,11 @@ import BlockedPersonasPanel from '@/components/settings/BlockedPersonasPanel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Lock, UserX } from 'lucide-react';
+import { ArrowLeft, Lock, UserX, FileText, Shield } from 'lucide-react';
 
 export default function Settings() {
   const [activeKey, setActiveKey] = useState(null);
+  const navigate = useNavigate();
 
   const sections = useMemo(
     () => [
@@ -29,6 +31,25 @@ export default function Settings() {
             title: 'Blocked profiles',
             description: 'View and manage blocked profiles.',
             icon: UserX,
+          },
+        ],
+      },
+      {
+        groupTitle: 'Legal',
+        items: [
+          {
+            key: 'terms',
+            title: 'Terms & Conditions',
+            description: 'Read our terms of service.',
+            icon: FileText,
+            href: '/terms',
+          },
+          {
+            key: 'privacy',
+            title: 'Privacy Policy',
+            description: 'Learn how we handle your data.',
+            icon: Shield,
+            href: '/privacy',
           },
         ],
       },
@@ -114,7 +135,7 @@ export default function Settings() {
                         <button
                           key={item.key}
                           type="button"
-                          onClick={() => setActiveKey(item.key)}
+                          onClick={() => item.href ? navigate(item.href) : setActiveKey(item.key)}
                           className={cn(
                             'w-full rounded-md px-3 py-3 text-left transition-colors',
                             'hover:bg-accent',

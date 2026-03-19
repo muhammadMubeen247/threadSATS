@@ -15,6 +15,8 @@ import NotificationsPage from './pages/NotificationsPage';
 import Settings from './pages/Settings';
 import SearchPage from './pages/SearchPage';
 import ForgotPassword from './pages/ForgotPassword';
+import TermsPage from './pages/TermsPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import ProtectedLayout from '@/components/layout/ProtectedLayout'; // ✅ add
@@ -57,6 +59,8 @@ function AppRoutes() {
       <Route path="verify-otp" element={<VerifyOTP />} />
       <Route path="login" element={<Login />} />
       <Route path="forgot-password" element={<ForgotPassword />} />
+      <Route path="terms" element={<TermsPage />} />
+      <Route path="privacy" element={<PrivacyPolicyPage />} />
 
       {/* protected (layout renders MobileBottomNav on mobile) */}
       <Route
