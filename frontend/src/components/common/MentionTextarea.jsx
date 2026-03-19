@@ -224,7 +224,7 @@ export default function MentionTextarea({
             if (t.type === 'mention') {
               const handle = String(t.value || '').trim();
               return (
-                <span key={`m-${handle}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold bg-blue-500/10 rounded px-1">
+                <span key={`m-${handle}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold">
                   @{handle}
                 </span>
               );
@@ -232,7 +232,7 @@ export default function MentionTextarea({
             if (t.type === 'hashtag') {
               const tag = String(t.value || '').trim().toLowerCase();
               return (
-                <span key={`h-${tag}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold bg-blue-500/10 rounded px-1">
+                <span key={`h-${tag}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold">
                   #{tag}
                 </span>
               );
