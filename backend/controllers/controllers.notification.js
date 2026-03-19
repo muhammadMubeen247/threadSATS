@@ -82,7 +82,7 @@ exports.getNotifications = async (req, res) => {
 
     const docs = await Notification.find(query)
       .populate('lastActorPersona', 'handle displayName profilePic type rollNumber department batch')
-      .sort({ createdAt: -1 })
+      .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();

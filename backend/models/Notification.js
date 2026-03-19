@@ -44,6 +44,6 @@ const notificationSchema = new mongoose.Schema(
 );
 
 notificationSchema.index({ recipientPersona: 1, groupKey: 1 }, { unique: true });
-notificationSchema.index({ recipientPersona: 1, createdAt: -1 });
+notificationSchema.index({ recipientPersona: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);
