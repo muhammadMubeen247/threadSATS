@@ -67,6 +67,15 @@ const uploadMedia = async (req, res) => {
     const imageFiles = req.files.filter((f) => f.mimetype.startsWith('image/'));
     const videoFiles = req.files.filter((f) => f.mimetype.startsWith('video/'));
 
+    // Video uploads disabled on free Cloudinary tier — flip VIDEO_ENABLED to re-enable
+    const VIDEO_ENABLED = false;
+    if (!VIDEO_ENABLED && videoFiles.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Video uploads are not supported yet',
+      });
+    }
+
     if (videoFiles.length > MAX_VIDEOS) {
       return res.status(400).json({
         success: false,

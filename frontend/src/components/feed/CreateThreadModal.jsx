@@ -25,6 +25,7 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
 
   const MAX_CHARS = 500;
   const MAX_MEDIA = 4;
+  const VIDEO_ENABLED = false; // flip to true when Cloudinary plan supports video
   const MAX_VIDEOS = 2;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
   const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50MB
@@ -119,7 +120,12 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
       const isVideo = file.type?.startsWith('video/');
 
       if (!isImage && !isVideo) {
-        setError('Only image and video files are allowed');
+        setError('Only image files are allowed');
+        continue;
+      }
+
+      if (isVideo && !VIDEO_ENABLED) {
+        setError('Video uploads are not supported yet');
         continue;
       }
 
@@ -350,7 +356,7 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 multiple
                 onChange={handleMediaSelect}
                 className="hidden"
