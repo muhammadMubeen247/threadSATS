@@ -116,11 +116,11 @@ export default function Home() {
         }
       >
         <div className="divide-y">
-          {threads.map((thread) => {
+          {threads.map((thread, index) => {
             const key =
               thread?.type === 'repost'
-                ? thread?.repost?.id
-                : thread?._id || thread?.id;
+                ? thread?.repost?.id || thread?.repost?._id || `repost-${index}`
+                : thread?._id || thread?.id || `thread-${index}`;
 
             return (
               <ThreadCard

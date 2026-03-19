@@ -464,6 +464,12 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 <span className="text-sm">{thread?.commentCount || 0}</span>
               </button>
 
+              {thread?.type === 'repost' ? (
+                <div className="flex items-center gap-2 text-green-500">
+                  <Repeat2 className="h-5 w-5" />
+                  <span className="text-sm">{repostCount}</span>
+                </div>
+              ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                   <button
@@ -492,6 +498,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
             </div>
           </div>
         </div>
