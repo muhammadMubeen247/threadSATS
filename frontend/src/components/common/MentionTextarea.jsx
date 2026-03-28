@@ -17,6 +17,7 @@ export default function MentionTextarea({
   className = '',
   sanitize,
   autoFocus,
+  onKeyDown: onKeyDownProp,
 
   enableHashtagSuggestions = false,
 }) {
@@ -176,7 +177,10 @@ export default function MentionTextarea({
   };
 
   const onKeyDown = (e) => {
-    if (!open || !results.length) return;
+    if (!open || !results.length) {
+      onKeyDownProp?.(e);
+      return;
+    }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();

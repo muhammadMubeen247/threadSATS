@@ -627,6 +627,12 @@ export default function ThreadDetail() {
                       onValueChange={(v) => setReplyText(stripBidiControls(v))}
                       maxLength={500}
                       disabled={isSubmittingReply}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleReplySubmit(commentId, replyingTo.parentCommentId);
+                        }
+                      }}
                       className="min-h-[84px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                     />
 
@@ -970,6 +976,12 @@ export default function ThreadDetail() {
                     onValueChange={(v) => setCommentText(stripBidiControls(v))}
                     maxLength={500}
                     disabled={isSubmitting}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleCommentSubmit(e);
+                      }
+                    }}
                     className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                   />
                 </div>
