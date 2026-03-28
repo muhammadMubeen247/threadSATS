@@ -360,10 +360,10 @@ export default function ProfileHeader(props) {
             </DialogContent>
           </Dialog>
 
-          <div className="flex justify-between items-center">
-            <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+            <div className="space-y-2 min-w-0">
               <div>
-                <h1 className="text-2xl font-bold">@{profile?.username}</h1>
+                <h1 className="text-2xl font-bold truncate">@{profile?.username}</h1>
                 <div className="flex items-center gap-2 text-muted-foreground text-sm">
                   <span>{profile?.rollNumber}</span>
                 </div>
@@ -389,7 +389,7 @@ export default function ProfileHeader(props) {
               </div>
             </div>
 
-            <div className="mb-12 flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {isActivePersona ? (
                 <Button variant="outline" type="button" onClick={() => setIsEditOpen(true)}>
                   Edit Profile

@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, Bell, User, LogOut, Settings } from 'lucide-react';
+import useScrollDirection from '@/hooks/useScrollDirection';
 import { ThemeToggle } from '../ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,7 @@ import personasIcon from '@/assets/personas_icon.png';
 
 export default function Navbar() {
   const navigate = useNavigate();
+  const scrollDir = useScrollDirection();
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
   const { unread, setUnread, upsertFromSocket } = useNotificationsStore();
@@ -212,8 +214,8 @@ export default function Navbar() {
   }, [user, setUnread, upsertFromSocket]);
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between px-4">
+    <nav className={`sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 ${scrollDir === 'down' ? '-translate-y-full' : 'translate-y-0'} lg:translate-y-0`}>
+      <div className="w-full flex h-16 items-center justify-between px-4">
         {/* Left: Logo (no burger on mobile now) */}
         <div className="flex items-center gap-2">
           <Link to="/home" className="flex items-center space-x-2">

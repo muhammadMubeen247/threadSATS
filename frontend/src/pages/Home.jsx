@@ -9,10 +9,12 @@ import ThreadCard from '@/components/feed/ThreadCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
+import useScrollDirection from '@/hooks/useScrollDirection';
 
 export default function Home() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuthStore();
+  const scrollDir = useScrollDirection();
   const [activeTab, setActiveTab] = useState('forYou');
   const [threads, setThreads] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -175,7 +177,7 @@ export default function Home() {
         {/* Main Feed */}
         <main className="flex-1 min-h-[calc(100vh-4rem)] lg:border-x">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full justify-start rounded-none border-b bg-background p-0 h-12 sm:h-14 sticky top-16 z-10">
+            <TabsList className={`w-full justify-start rounded-none border-b bg-background p-0 h-12 sm:h-14 sticky z-10 transition-[top] duration-300 ${scrollDir === 'down' ? 'top-0' : 'top-16'}`}>
               <TabsTrigger
                 value="forYou"
                 className="flex-1 rounded-none text-sm sm:text-base data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-accent/60"

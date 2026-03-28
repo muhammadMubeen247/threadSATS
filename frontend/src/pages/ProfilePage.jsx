@@ -15,7 +15,7 @@ import PersonaLikesTab from '@/components/profile/PersonaLikesTab';
 export default function ProfilePage() {
   const { handle } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, activeMode, personas } = useAuthStore();
 
   const personaHandle = useMemo(() => {
     if (!handle) return '';
@@ -46,6 +46,16 @@ export default function ProfilePage() {
 
     if (personaHandle) fetchPersonaProfile();
   }, [personaHandle, navigate]);
+
+  // When the user switches persona mode while viewing their own profile,
+  // redirect to the new persona's handle so the page refreshes correctly.
+  useEffect(() => {
+    if (!profile?.isOwnProfile) return;
+    const newHandle = personas?.[activeMode]?.handle;
+    if (newHandle && newHandle.toLowerCase() !== personaHandle) {
+      navigate(`/@${newHandle}`, { replace: true });
+    }
+  }, [activeMode, personas, profile?.isOwnProfile, personaHandle, navigate]);
 
   if (!handle?.startsWith('@')) return <Navigate to="/home" replace />;
 
@@ -97,7 +107,7 @@ export default function ProfilePage() {
   if (!profile) return null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       <Navbar />
 
       <div className="container mx-auto flex flex-col lg:flex-row px-3 sm:px-4">

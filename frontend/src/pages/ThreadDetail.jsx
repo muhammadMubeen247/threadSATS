@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import Navbar from '@/components/layout/Navbar';
+import useScrollDirection from '@/hooks/useScrollDirection';
 import Sidebar from '@/components/layout/Sidebar';
 import SuggestedUsers from '@/components/layout/SuggestedUsers';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ export default function ThreadDetail() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const scrollDir = useScrollDirection();
 
   // ✅ pull persona info too (so avatar works even when user is briefly null)
   const { user, personas, activeMode } = useAuthStore();
@@ -796,7 +798,7 @@ export default function ThreadDetail() {
         </aside>
 
         <main className="flex-1 lg:border-x min-h-[calc(100vh-4rem)]">
-          <div className="sticky top-16 z-10 bg-background/95 backdrop-blur border-b p-4 flex items-center space-x-4">
+          <div className={`sticky z-10 bg-background/95 backdrop-blur border-b p-4 flex items-center space-x-4 transition-[top] duration-300 ${scrollDir === 'down' ? 'top-0' : 'top-16'}`}>
             <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>

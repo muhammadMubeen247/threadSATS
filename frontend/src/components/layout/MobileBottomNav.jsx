@@ -2,11 +2,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, TrendingUp, MessageCircle, Settings, Plus, Search, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+import useScrollDirection from '@/hooks/useScrollDirection';
 
 export default function MobileBottomNav({ onCreateThread }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const scrollDir = useScrollDirection();
 
   const profilePath = user ? '/me' : '/login';
 
@@ -40,7 +42,9 @@ export default function MobileBottomNav({ onCreateThread }) {
     <div
       className={cn(
         'lg:hidden fixed bottom-0 left-0 right-0 z-50',
-        'border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60'
+        'border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60',
+        'transition-transform duration-300',
+        scrollDir === 'down' ? 'translate-y-full' : 'translate-y-0'
       )}
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
