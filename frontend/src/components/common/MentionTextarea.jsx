@@ -326,7 +326,10 @@ export default function MentionTextarea({
                             {typeLabel}
                           </span>
                         </div>
-                        <div className="text-xs text-muted-foreground truncate">{displayName}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {displayName}
+                          {p?.rollNumber ? <span className="ml-1.5 opacity-70">{p.rollNumber}</span> : null}
+                        </div>
                       </div>
                     </button>
                   </li>

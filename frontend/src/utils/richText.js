@@ -1,4 +1,6 @@
-const MENTION_RX = /(^|[^a-zA-Z0-9_])@([a-zA-Z0-9_]{2,30})\b/g;
+// Allows hyphens in mentions so roll-number queries like @FA22-BCS-116 highlight fully.
+// Requires first & last char to be a word char so \b still works and trailing hyphens are excluded.
+const MENTION_RX = /(^|[^a-zA-Z0-9_])@([a-zA-Z0-9_][a-zA-Z0-9_-]{0,28}[a-zA-Z0-9_])\b/g;
 const HASHTAG_RX = /(^|[^a-zA-Z0-9_])#([a-zA-Z0-9_]{2,30})\b/g;
 
 function tokenizeWithRegex(text, rx, type) {
@@ -48,8 +50,8 @@ export function findActiveMentionAtCaret(text, caretIndex) {
 
   const query = before.slice(at + 1);
 
-  // query must be only [a-zA-Z0-9_]
-  if (!/^[a-zA-Z0-9_]{0,30}$/.test(query)) return null;
+  // query must be only [a-zA-Z0-9_-] (hyphens allowed for roll numbers like FA22-BCS-128)
+  if (!/^[a-zA-Z0-9_-]{0,30}$/.test(query)) return null;
 
   return { start: at, end: caret, query };
 }
