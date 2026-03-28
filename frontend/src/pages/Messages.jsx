@@ -323,7 +323,12 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
           setNextBefore(null);
         }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          requestAnimationFrame(() => {
+            bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+          });
+        }
       }
     })();
 
