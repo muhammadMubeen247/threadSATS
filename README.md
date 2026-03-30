@@ -2,8 +2,8 @@
 
 A private, anonymous-first social platform built exclusively for **COMSATS University** students.
 
-### What is Bark?
-Bark is your campus's own digital space — where students can:
+### What is Personas?
+Personas is your campus's own digital space — where students can:
 - Post threads **publicly** or **anonymously**
 - Share knowledge, memes, complaints, and campus drama
 - Connect with batchmates and department mates
@@ -74,8 +74,8 @@ It's designed to feel like a mix of **Instagram + Reddit + Twitter/X**, but made
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bark.git
-cd bark
+git clone https://github.com/yourusername/threadSATS.git
+cd threadSATS
 
 # Backend
 cd backend
