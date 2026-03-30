@@ -311,10 +311,17 @@ export default function ThreadDetail() {
           setLoadedReplies((prev) => {
             const nextRepliesForTarget = [newReply, ...(prev[commentId] || [])];
 
+            // If loaded replies for the root parent are empty, seed from previewReplies
+            // so expanding doesn't show a blank tree
+            const parentLoaded = prev[parentCommentId];
+            const parentBase = parentLoaded?.length
+              ? parentLoaded
+              : comments.find((c) => (c._id || c.id) === parentCommentId)?.previewReplies || [];
+
             return {
               ...prev,
               [commentId]: nextRepliesForTarget,
-              [parentCommentId]: updateReplyInTree(prev[parentCommentId] || [], commentId, (reply) => ({
+              [parentCommentId]: updateReplyInTree(parentBase, commentId, (reply) => ({
                 ...reply,
                 replyCount: (reply.replyCount || 0) + 1,
               })),
@@ -355,7 +362,7 @@ export default function ThreadDetail() {
 
   const handleLikeComment = async (commentId) => {
     try {
-      const updateComment = (c) => {
+      const toggleLike = (c) => {
         const id = c._id || c.id;
         if (id === commentId) {
           return {
@@ -364,31 +371,19 @@ export default function ThreadDetail() {
             likesCount: (c.likesCount || 0) + (c.isLiked ? -1 : 1),
           };
         }
+        if (c.previewReplies?.length) {
+          return { ...c, previewReplies: c.previewReplies.map(toggleLike) };
+        }
         return c;
       };
 
-      setComments((prev) => prev.map(updateComment));
+      setComments((prev) => prev.map(toggleLike));
 
       setLoadedReplies((prev) => {
         const next = {};
-        Object.keys(prev).forEach((key) => {
-          const arr = prev[key];
-          const updated = arr.map(updateComment);
-          next[key] = updated.map((r) => {
-            if (r.replies && r.replies.length > 0) {
-              return {
-                ...r,
-                replies: updateLikeInReplies(
-                  r.replies,
-                  commentId,
-                  !r.isLiked,
-                  (r.likesCount || 0) + (r.isLiked ? -1 : 1)
-                ),
-              };
-            }
-            return r;
-          });
-        });
+        for (const key of Object.keys(prev)) {
+          next[key] = prev[key].map(toggleLike);
+        }
         return next;
       });
 
@@ -683,7 +678,7 @@ export default function ThreadDetail() {
             ))
           : null}
 
-        {/* Show / Hide replies controls — aligned with content column */}
+        {/* Show / Hide replies controls */}
         {totalReplies > 0 ? (
           <div className="ml-[52px] mt-1 pb-1 text-xs">
             {!isExpanded && hiddenRepliesCount > 0 ? (
@@ -708,7 +703,7 @@ export default function ThreadDetail() {
               </Button>
             ) : null}
 
-            {isExpanded ? (
+            {depth === 0 && isExpanded ? (
               <div className="flex items-center gap-3">
                 <Button
                   variant="ghost"
