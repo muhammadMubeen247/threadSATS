@@ -200,27 +200,23 @@ export default function NotificationsPage() {
     if (n.type === 'comment' && n.entityType === 'thread') {
       const threadId = n.entityId;
       const commentId = n.secondaryEntityId || n?.context?.comment?.id;
-      navigate(commentId ? `/thread/${threadId}?comment=${commentId}` : `/thread/${threadId}`);
+      navigate(commentId ? `/thread/${threadId}#comment-${commentId}` : `/thread/${threadId}`);
       return;
     }
 
-    // Reply -> open the thread and focus parent+reply (entityId=parentCommentId, secondaryEntityId=replyId)
+    // Reply -> open the thread and focus the reply (entityId=parentCommentId, secondaryEntityId=replyId)
     if (n.type === 'reply' && n.entityType === 'comment') {
       const threadId = n?.context?.thread?.id; // comes from hydrated context
-      const parentCommentId = n.entityId;
       const replyId = n.secondaryEntityId || n?.context?.reply?.id;
 
       if (threadId) {
-        const qs = new URLSearchParams();
-        if (parentCommentId) qs.set('comment', parentCommentId);
-        if (replyId) qs.set('reply', replyId);
-        navigate(`/thread/${threadId}?${qs.toString()}`);
+        navigate(`/thread/${threadId}#comment-${replyId || n.entityId}`);
       } else {
         // fallback (if context missing)
         try {
           const c = await api.get(`/comments/${n.entityId}`);
           const tid = c?.comment?.threadId || c?.threadId;
-          if (tid) navigate(`/thread/${tid}`);
+          if (tid) navigate(`/thread/${tid}#comment-${replyId || n.entityId}`);
         } catch {
           // ignore
         }
@@ -232,7 +228,7 @@ export default function NotificationsPage() {
     if (n.type === 'mention' && n.entityType === 'thread') {
       const threadId = n.entityId;
       const commentId = n.secondaryEntityId || n?.context?.comment?.id;
-      navigate(commentId ? `/thread/${threadId}?comment=${commentId}` : `/thread/${threadId}`);
+      navigate(commentId ? `/thread/${threadId}#comment-${commentId}` : `/thread/${threadId}`);
       return;
     }
 

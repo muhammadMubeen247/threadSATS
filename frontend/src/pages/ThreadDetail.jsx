@@ -95,18 +95,32 @@ export default function ThreadDetail() {
     const id = String(m[1]);
     setFocusedCommentId(id);
 
-    const raf = window.requestAnimationFrame(() => {
+    // Try scrolling immediately, then retry after comments render
+    const tryScroll = () => {
       const el = document.getElementById(`comment-${id}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return true;
+      }
+      return false;
+    };
 
-    const t = window.setTimeout(() => setFocusedCommentId(null), 2500);
+    const raf = window.requestAnimationFrame(() => {
+      if (!tryScroll()) {
+        // Retry after a delay for replies that render after initial comment load
+        retryTimer = window.setTimeout(tryScroll, 600);
+      }
+    });
+    let retryTimer;
+
+    const t = window.setTimeout(() => setFocusedCommentId(null), 3000);
 
     return () => {
       window.cancelAnimationFrame(raf);
+      window.clearTimeout(retryTimer);
       window.clearTimeout(t);
     };
-  }, [location.hash]);
+  }, [location.hash, comments]);
 
   const threadType = thread?.type || 'thread';
 
