@@ -129,16 +129,17 @@ export default function Navbar() {
         setAnonSetupOpen(true);
       }
     } catch (e) {
-      // our axios interceptor throws Error(message)
-      const msg = e?.message || 'Failed to switch mode';
+      const data = e?.response?.data;
 
-      // if your backend returns 409 with setupRequired, interceptor will only provide message.
-      // we still open setup dialog when toggling to anon.
-      if (nextMode === 'anon') {
-        setAnonSetupError(msg);
+      // Backend returns 409 with setupRequired when anon persona needs initial setup
+      if (nextMode === 'anon' && data?.setupRequired) {
+        setAnonSetupError('');
+        setAnonSetupOpen(true);
+      } else if (nextMode === 'anon') {
+        setAnonSetupError(e?.userMessage || e?.message || 'Failed to switch mode');
         setAnonSetupOpen(true);
       } else {
-        console.error(msg);
+        console.error(e?.userMessage || e?.message || 'Failed to switch mode');
       }
     } finally {
       setIsSwitchingMode(false);
