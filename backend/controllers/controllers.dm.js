@@ -8,6 +8,7 @@ const { getViewerContext } = require('../utils/personaContext');
 const { getIO, isPersonaOnline } = require('../socket');
 
 const { upsertNotification } = require('../utils/notifications'); // ✅ add
+const Notification = require('../models/Notification');
 
 const roomName = (conversationId) => `dm:${conversationId}`;
 const personaRoom = (personaId) => `persona:${personaId}`;
@@ -146,7 +147,7 @@ exports.getMessages = async (req, res) => {
 
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 30, 1), 100);
 
-    const query = { conversationId: id };
+    const query = { conversationId: id, deletedForEveryone: { $ne: true }, deletedFor: { $ne: ctx.activePersonaId } };
     if (req.query.before && mongoose.Types.ObjectId.isValid(req.query.before)) {
       query._id = { $lt: req.query.before };
     }
@@ -419,6 +420,105 @@ exports.searchMessages = async (req, res) => {
     });
   } catch (e) {
     console.error('searchMessages error:', e);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// DELETE MESSAGE
+// If recipient hasn't seen it -> delete for everyone + remove DM notification
+// If recipient has seen it -> delete only for sender
+exports.deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({ success: false, message: 'Invalid message ID' });
+    }
+
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx?.activePersonaId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const msg = await Message.findById(messageId);
+    if (!msg) return res.status(404).json({ success: false, message: 'Message not found' });
+
+    // Only the sender can delete
+    if (msg.senderPersonaId.toString() !== ctx.activePersonaId.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only delete your own messages' });
+    }
+
+    const convo = await Conversation.findById(msg.conversationId).select('participants lastMessage').lean();
+    if (!convo) return res.status(404).json({ success: false, message: 'Conversation not found' });
+
+    const otherId = (convo.participants || []).find((p) => p.toString() !== ctx.activePersonaId.toString());
+
+    // Check if the other person has seen this message
+    const otherHasSeen = (msg.seenBy || []).some((id) => id.toString() === otherId?.toString());
+
+    let deleteType;
+
+    if (otherHasSeen) {
+      // Other person has seen it -> only hide from sender
+      await Message.updateOne({ _id: messageId }, { $addToSet: { deletedFor: ctx.activePersonaId } });
+      deleteType = 'for_me';
+    } else {
+      // Other person hasn't seen it -> delete for everyone
+      await Message.updateOne({ _id: messageId }, { $set: { deletedForEveryone: true } });
+      deleteType = 'for_everyone';
+
+      // Remove the DM notification if this message was the trigger
+      await Notification.findOneAndDelete({
+        recipientPersona: otherId,
+        type: 'dm',
+        groupKey: `dm:conversation:${msg.conversationId}`,
+        secondaryEntityId: messageId,
+      }).catch(() => {});
+    }
+
+    // If the deleted message was the conversation's lastMessage, update it
+    if (convo.lastMessage?.toString() === messageId) {
+      const prevMsg = await Message.findOne({
+        conversationId: msg.conversationId,
+        _id: { $ne: messageId },
+        deletedForEveryone: { $ne: true },
+      })
+        .sort({ _id: -1 })
+        .select('_id')
+        .lean();
+
+      await Conversation.findByIdAndUpdate(msg.conversationId, {
+        lastMessage: prevMsg?._id || null,
+      });
+    }
+
+    // Emit realtime delete event
+    try {
+      const io = getIO();
+      const payload = {
+        conversationId: msg.conversationId.toString(),
+        messageId: msg._id.toString(),
+        deleteType,
+        deletedBy: ctx.activePersonaId.toString(),
+      };
+
+      if (deleteType === 'for_everyone') {
+        // Notify everyone in the conversation room
+        io?.to(roomName(msg.conversationId)).emit('dm:message_deleted', payload);
+        // Also notify via persona room in case they're not in the conversation room
+        if (otherId) io?.to(`persona:${otherId}`).emit('dm:message_deleted', payload);
+      } else {
+        // Only notify the sender's own sockets
+        io?.to(`persona:${ctx.activePersonaId}`).emit('dm:message_deleted', payload);
+      }
+    } catch {
+      // ignore socket errors
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Message deleted',
+      deleteType,
+    });
+  } catch (e) {
+    console.error('deleteMessage error:', e);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };

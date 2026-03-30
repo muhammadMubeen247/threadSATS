@@ -22,6 +22,8 @@ const messageSchema = new mongoose.Schema(
     },
     deliveredTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
     seenBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
+    deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
+    deletedForEveryone: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

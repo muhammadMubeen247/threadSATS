@@ -7,7 +7,7 @@ const {
   createOrGetConversation,
   getMessages,
   sendMessage,
-  // ✅ add
+  deleteMessage,
   searchContacts,
   searchMessages,
 } = require('../controllers/controllers.dm');
@@ -26,5 +26,7 @@ router.get('/search/contacts', searchContacts);
 // ✅ NEW: search messages
 // - optionally pass conversationId to search within one chat
 router.get('/search/messages', searchMessages);
+
+router.delete('/messages/:messageId', deleteMessage);
 
 module.exports = router;

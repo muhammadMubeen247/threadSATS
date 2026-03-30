@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MoreHorizontal, Search, Smile, Check, CheckCheck, X, Inbox } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Search, Smile, Check, CheckCheck, X, Inbox, Trash2, ChevronDown, CheckSquare } from 'lucide-react';
 
 import api from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
@@ -175,10 +175,37 @@ function ConversationList({ conversations, activeId, onOpen, onBack }) {
   );
 }
 
-function MessageBubble({ mine, text, time, status }) {
+function MessageBubble({ mine, text, time, status, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // close dropdown on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
+
   return (
-    <div className={mine ? 'flex justify-end' : 'flex justify-start'}>
-      <div className="max-w-[72%]">
+    <div className={mine ? 'flex justify-end items-center gap-2' : 'flex justify-start items-center gap-2'}>
+      {/* Checkbox in select mode */}
+      {selectMode && mine ? (
+        <button
+          type="button"
+          onClick={onToggleSelect}
+          className={[
+            'h-5 w-5 shrink-0 rounded border-2 flex items-center justify-center transition-colors',
+            selected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/40',
+          ].join(' ')}
+        >
+          {selected ? <Check className="h-3 w-3" /> : null}
+        </button>
+      ) : null}
+
+      <div className="max-w-[72%] group relative">
         <div
           className={[
             'rounded-2xl px-4 py-2 text-sm leading-relaxed',
@@ -188,19 +215,49 @@ function MessageBubble({ mine, text, time, status }) {
           {text}
         </div>
 
+        {/* Three-dot menu trigger for own messages (not in select mode) */}
+        {mine && !selectMode ? (
+          <div ref={menuRef} className="absolute -left-9 top-1/2 -translate-y-1/2">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-muted/40 text-muted-foreground opacity-60 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+              title="Message options"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+
+            {menuOpen ? (
+              <div className="absolute right-0 top-full mt-1 z-50 flex flex-col gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-lg min-w-[140px]">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onDelete?.(); }}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 whitespace-nowrap"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onEnterSelectMode?.(); }}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/30 whitespace-nowrap"
+                >
+                  <CheckSquare className="h-4 w-4" /> Select
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className={mine ? 'text-right' : 'text-left'}>
           <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {formatTime(time)}
 
             {mine ? (
               status === 'seen' ? (
-                // ✅ blue double tick when seen
                 <CheckCheck className="h-3.5 w-3.5 text-blue-500" />
               ) : status === 'delivered' ? (
-                // ✅ gray double tick when delivered
                 <CheckCheck className="h-3.5 w-3.5 opacity-80" />
               ) : (
-                // ✅ single gray tick when only sent
                 <Check className="h-3.5 w-3.5 opacity-70" />
               )
             ) : null}
@@ -239,6 +296,10 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   const emojiWrapRef = useRef(null);
   const pickerRef = useRef(null);
   const inputRef = useRef(null);
+
+  // ✅ multi-select mode
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const bottomRef = useRef(null);
 
@@ -497,14 +558,30 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
       );
     };
 
+    const onDeleted = (payload) => {
+      if (payload?.conversationId !== conversationId) return;
+      const mid = String(payload?.messageId || '');
+      if (!mid) return;
+
+      if (payload.deleteType === 'for_everyone') {
+        // Remove message for everyone
+        setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== mid));
+      } else if (payload.deleteType === 'for_me' && String(payload.deletedBy) === String(myPersonaId)) {
+        // Remove only for the sender
+        setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== mid));
+      }
+    };
+
     s.on('dm:message_status', onStatus);
     s.on('dm:seen_upto', onSeenUpto);
+    s.on('dm:message_deleted', onDeleted);
 
     return () => {
       s.off('dm:message_status', onStatus);
       s.off('dm:seen_upto', onSeenUpto);
+      s.off('dm:message_deleted', onDeleted);
     };
-  }, [conversationId]);
+  }, [conversationId, myPersonaId]);
 
   // ✅ when messages load/change in an open chat:
   // - deliver all incoming messages
@@ -592,6 +669,55 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
     };
   }, [conversationId, myPersonaId, ackDelivered, ackSeenUpTo]);
 
+  // ✅ delete a message
+  const handleDeleteMessage = useCallback(async (messageId) => {
+    try {
+      await api.delete(`/dm/messages/${messageId}`);
+      setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
+    } catch (e) {
+      console.error('Delete failed:', e);
+    }
+  }, []);
+
+  // ✅ toggle selection of a message
+  const toggleSelect = useCallback((messageId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }, []);
+
+  // ✅ enter select mode (optionally pre-selecting a message)
+  const enterSelectMode = useCallback((messageId) => {
+    setSelectMode(true);
+    setSelectedIds(messageId ? new Set([messageId]) : new Set());
+  }, []);
+
+  // ✅ exit select mode
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  // ✅ bulk delete selected messages
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = useCallback(async () => {
+    if (!selectedIds.size) return;
+    setBulkDeleting(true);
+    try {
+      const ids = [...selectedIds];
+      await Promise.all(ids.map((id) => api.delete(`/dm/messages/${id}`)));
+      setMessages((prev) => prev.filter((m) => !selectedIds.has(String(m._id || m.id))));
+      exitSelectMode();
+    } catch (e) {
+      console.error('Bulk delete failed:', e);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selectedIds, exitSelectMode]);
+
   // ✅ ADD/UPDATE: send message handler (used by Enter + Send button)
   const send = useCallback(async () => {
     const body = text.trim();
@@ -639,6 +765,34 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
     >
       {/* Header */}
       <div className="border-b border-border px-4 py-3">
+        {selectMode ? (
+          /* ✅ Selection mode header */
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={exitSelectMode}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-full hover:bg-muted/30"
+                title="Cancel selection"
+              >
+                <X className="h-5 w-5 text-muted-foreground" />
+              </button>
+              <span className="font-semibold text-sm">
+                {selectedIds.size} selected
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={!selectedIds.size || bulkDeleting}
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {bulkDeleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        ) : (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             {/* ✅ mobile-only back to list */}
@@ -689,6 +843,7 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
             </button>
           </div>
         </div>
+        )}
 
         {/* ✅ Search panel */}
         {searchOpen ? (
@@ -770,7 +925,17 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
 
               return (
                 <div key={id} id={`msg-${id}`}>
-                  <MessageBubble mine={mine} text={m.text} time={m.createdAt} status={status} />
+                  <MessageBubble
+                    mine={mine}
+                    text={m.text}
+                    time={m.createdAt}
+                    status={status}
+                    onDelete={mine ? () => handleDeleteMessage(id) : undefined}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(id)}
+                    onToggleSelect={() => toggleSelect(id)}
+                    onEnterSelectMode={() => enterSelectMode(id)}
+                  />
                 </div>
               );
             })}
