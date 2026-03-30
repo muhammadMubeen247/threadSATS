@@ -102,7 +102,7 @@ export default function TrendsPage() {
                           <div className="text-xs text-muted-foreground">
                             Trending at #{trend.rank ?? ''}
                           </div>
-                          <div className="truncate font-semibold text-blue-600 dark:text-blue-400">
+                          <div className="truncate font-semibold text-sky-500 dark:text-sky-500">
                             #{trend.tag}
                           </div>
                         </div>

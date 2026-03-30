@@ -18,8 +18,7 @@ export default function RichText({
             <Link
               key={`m-${handle}-${idx}`}
               to={`/@${handle}`}
-              // className="text-blue-500 dark:text-blue-400 font-semibold hover:underline"
-              className="text-sky-500 dark:text-blue-400 font-semibold hover:underline"
+              className="text-sky-500 font-semibold hover:underline"
               onClick={(e) => e.stopPropagation?.()}
             >
               @{handle}
@@ -33,7 +32,7 @@ export default function RichText({
             <Link
               key={`h-${tag}-${idx}`}
               to={`/hashtag/${tag}`}
-              className="text-blue-500 dark:text-blue-400 font-semibold hover:underline"
+              className="text-sky-500 font-semibold hover:underline"
               onClick={(e) => e.stopPropagation?.()}
             >
               #{tag}

@@ -217,7 +217,7 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
     <>
       {/* Main "Edit profile" modal (full-screen on mobile) */}
       <Dialog open={open} onOpenChange={(v) => (!v ? close() : null)}>
-        <DialogContent className="p-0 w-[100vw] max-w-none h-[calc(100dvh-2rem)] my-4 rounded-none sm:h-auto sm:max-w-xl sm:rounded-lg overflow-hidden">
+        <DialogContent hideClose className="p-0 w-[100vw] max-w-none h-[calc(100dvh-2rem)] my-4 rounded-none sm:h-auto sm:max-w-xl sm:rounded-lg overflow-hidden">
           {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-3 border-b bg-background">
             <Button type="button" variant="ghost" size="icon" onClick={close} disabled={isBusy}>

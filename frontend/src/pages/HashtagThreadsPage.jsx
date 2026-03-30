@@ -175,7 +175,7 @@ export default function HashtagThreadsPage() {
               {/* Header */}
               <header className="border-b py-5">
                 <div className="mx-auto max-w-3xl space-y-1">
-                  <h1 className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                  <h1 className="text-lg font-semibold text-sky-500 dark:text-sky-500">
                     #{hashtag}
                   </h1>
                   <p className="text-sm text-muted-foreground">Threads</p>

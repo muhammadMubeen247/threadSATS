@@ -228,7 +228,7 @@ export default function MentionTextarea({
             if (t.type === 'mention') {
               const handle = String(t.value || '').trim();
               return (
-                <span key={`m-${handle}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold">
+                <span key={`m-${handle}-${idx}`} className="text-sky-500 font-semibold">
                   @{handle}
                 </span>
               );
@@ -236,7 +236,7 @@ export default function MentionTextarea({
             if (t.type === 'hashtag') {
               const tag = String(t.value || '').trim().toLowerCase();
               return (
-                <span key={`h-${tag}-${idx}`} className="text-blue-600 dark:text-blue-400 font-semibold">
+                <span key={`h-${tag}-${idx}`} className="text-sky-500 font-semibold">
                   #{tag}
                 </span>
               );
@@ -285,7 +285,7 @@ export default function MentionTextarea({
                     onClick={() => insertHashtag(t?.tag)}
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-blue-600 dark:text-blue-400 truncate">
+                      <div className="text-sm font-semibold text-sky-500 truncate">
                         #{t?.tag}
                       </div>
                       <div className="text-xs text-muted-foreground">
