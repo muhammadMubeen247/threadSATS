@@ -78,6 +78,52 @@ function initSocket(httpServer) {
 
         // ✅ personal room (always-on)
         socket.join(personaRoom(pid));
+
+        // ✅ Deliver pending messages: find all undelivered messages for this persona
+        try {
+          const convos = await Conversation.find({ participants: pid }).select('_id').lean();
+          if (convos.length) {
+            const convoIds = convos.map((c) => c._id);
+            const pending = await Message.find({
+              conversationId: { $in: convoIds },
+              senderPersonaId: { $ne: pid },
+              deliveredTo: { $ne: pid },
+            })
+              .select('_id conversationId deliveredTo seenBy')
+              .lean();
+
+            if (pending.length) {
+              // Bulk mark delivered
+              const pendingIds = pending.map((m) => m._id);
+              await Message.updateMany(
+                { _id: { $in: pendingIds } },
+                { $addToSet: { deliveredTo: pid } }
+              );
+
+              // Broadcast status for each conversation
+              const byConvo = {};
+              for (const m of pending) {
+                const cid = String(m.conversationId);
+                if (!byConvo[cid]) byConvo[cid] = [];
+                byConvo[cid].push(m);
+              }
+
+              for (const [cid, msgs] of Object.entries(byConvo)) {
+                for (const m of msgs) {
+                  const delivered = [...(m.deliveredTo || []), pid];
+                  io.to(roomName(cid)).emit('dm:message_status', {
+                    conversationId: cid,
+                    messageId: m._id,
+                    deliveredTo: delivered,
+                    seenBy: m.seenBy || [],
+                  });
+                }
+              }
+            }
+          }
+        } catch {
+          // non-critical, ignore
+        }
       } catch {
         // ignore
       }

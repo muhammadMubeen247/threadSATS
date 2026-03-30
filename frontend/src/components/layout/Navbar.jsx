@@ -1,7 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Bell, User, LogOut, Settings } from 'lucide-react';
+import { Search, Bell, User, LogOut, Settings, Moon, Sun } from 'lucide-react';
 import useScrollDirection from '@/hooks/useScrollDirection';
-import { ThemeToggle } from '../ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/store/authStore';
@@ -213,40 +212,61 @@ export default function Navbar() {
     };
   }, [user, setUnread, upsertFromSocket]);
 
+  // ✅ Theme state (shared between desktop button and mobile menu item)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    localStorage.setItem('theme', next);
+  };
+
+  const ThemeToggleButton = ({ className = '' }) => (
+    <Button variant="ghost" size="icon" onClick={toggleTheme} className={className}>
+      {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+    </Button>
+  );
+
   return (
     <nav className={`sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 ${scrollDir === 'down' ? '-translate-y-full' : 'translate-y-0'} lg:translate-y-0`}>
-      <div className="w-full flex h-16 items-center justify-between px-4">
-        {/* Left: Logo (no burger on mobile now) */}
-        <div className="flex items-center gap-2">
+      <div className="w-full relative flex h-16 items-center justify-between px-4">
+        {/* Spacer on mobile to balance justify-between (logo is absolute) */}
+        <div className="w-9 lg:hidden" />
+        {/* Logo: centered on mobile, left-aligned on desktop */}
+        <div className="absolute left-1/2 -translate-x-1/2 lg:static lg:translate-x-0 flex items-center gap-2">
           <Link to="/home" className="flex items-center space-x-2">
-            {/* ✅ replaced P box with image */}
             <img
               src={personasIcon}
               alt="Personas"
               className="h-16 w-16 rounded-lg object-contain"
             />
-            <span className="hidden font-bold text-lg sm:inline-block">Personas</span>
+            <span className="hidden font-bold text-lg lg:inline-block">Personas</span>
           </Link>
         </div>
 
         {/* Right Side Actions */}
         <div className="flex items-center space-x-2 sm:space-x-4">
-          <ThemeToggle />
+          {/* Theme toggle – desktop only */}
+          <ThemeToggleButton className="hidden lg:inline-flex" />
 
-          {/* ✅ Search button -> /search */}
+          {/* Search button – desktop only */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => navigate('/search')}
             aria-label="Search"
             title="Search"
+            className="hidden lg:inline-flex"
           >
             <Search className="h-5 w-5" />
           </Button>
 
-          {/* ✅ Public/Anon Toggle */}
+          {/* ✅ Public/Anon Toggle – desktop only */}
           {user && (
-            <div className="flex items-center gap-2">
+            <div className="hidden lg:flex items-center gap-2">
               <Label className="text-xs text-muted-foreground" htmlFor="mode-toggle">
                 Public
               </Label>
@@ -262,11 +282,11 @@ export default function Navbar() {
             </div>
           )}
 
-          {/* ✅ Bell → /notifications */}
+          {/* Bell – desktop only */}
           <Button
             variant="ghost"
             size="icon"
-            className="relative"
+            className="relative hidden lg:inline-flex"
             onClick={() => navigate('/notifications')}
             aria-label="Notifications"
           >
@@ -286,6 +306,10 @@ export default function Navbar() {
                   <AvatarImage src={displayIdentity.profilePic} alt={displayIdentity.username} />
                   <AvatarFallback>{getInitials(displayIdentity.username)}</AvatarFallback>
                 </Avatar>
+                {/* Red dot on mobile when unread notifications */}
+                {unread > 0 ? (
+                  <span className="absolute top-0 right-0 h-2.5 w-2.5 rounded-full bg-red-600 ring-2 ring-background lg:hidden" />
+                ) : null}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
@@ -296,13 +320,42 @@ export default function Navbar() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {/* Persona switch – mobile only */}
+              {user ? (
+                <div className="lg:hidden flex items-center justify-between px-2 py-1.5">
+                  <span className="text-sm">Public</span>
+                  <Switch
+                    checked={activeMode === 'anon'}
+                    onCheckedChange={onToggleMode}
+                    disabled={isSwitchingMode}
+                    className="mx-2"
+                  />
+                  <span className="text-sm">Anon</span>
+                </div>
+              ) : null}
               <DropdownMenuItem onClick={() => navigate('/me')}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
+              {/* Notifications – mobile only */}
+              <DropdownMenuItem onClick={() => navigate('/notifications')} className="lg:hidden">
+                <Bell className="mr-2 h-4 w-4" />
+                Notifications
+                {unread > 0 ? (
+                  <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[11px] leading-5 text-center">
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
-                Settings</DropdownMenuItem>
+                Settings
+              </DropdownMenuItem>
+              {/* Theme toggle – mobile only */}
+              <DropdownMenuItem onClick={toggleTheme} className="lg:hidden">
+                {theme === 'light' ? <Moon className="mr-2 h-4 w-4" /> : <Sun className="mr-2 h-4 w-4" />}
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                 <LogOut className="mr-2 h-4 w-4" />
