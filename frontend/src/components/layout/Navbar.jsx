@@ -87,10 +87,10 @@ export default function Navbar() {
   const displayIdentity = useMemo(() => {
     const activePersona = activeMode === 'anon' ? personas?.anon : personas?.public;
 
-    // prefer persona for avatar/handle; fallback to user
+    // prefer persona for avatar/handle; fallback to user only in public mode
     return {
       username: activePersona?.handle || user?.username || '',
-      profilePic: activePersona?.profilePic || user?.profilePic || '',
+      profilePic: activePersona?.profilePic || (activeMode !== 'anon' ? user?.profilePic : '') || '',
       email: user?.email || '',
     };
   }, [activeMode, personas, user]);
