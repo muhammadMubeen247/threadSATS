@@ -19,7 +19,7 @@ export default function Login() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
-    email: '',
+    regNumber: '',
     password: '',
   });
 
@@ -27,7 +27,10 @@ export default function Login() {
     if (location.state?.message) {
       setSuccessMessage(location.state.message);
       if (location.state?.email) {
-        setFormData((prev) => ({ ...prev, email: location.state.email }));
+        // Pre-fill reg number from email (strip @cuilahore.edu.pk)
+        const email = location.state.email;
+        const reg = email.replace(/@cuilahore\.edu\.pk$/i, '');
+        setFormData((prev) => ({ ...prev, regNumber: reg }));
       }
     }
   }, [location.state]);
@@ -53,7 +56,10 @@ export default function Login() {
     setSuccessMessage('');
 
     try {
-      const response = await api.post('/auth/login', formData);
+      const regLower = formData.regNumber.trim().toLowerCase();
+      const email = regLower.includes('@') ? regLower : `${regLower}@cuilahore.edu.pk`;
+
+      const response = await api.post('/auth/login', { email, password: formData.password });
 
       if (response.success) {
         setUser(response.user);
@@ -101,16 +107,16 @@ export default function Login() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="regNumber">Registration Number</Label>
                 <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="fa22-bcs-128@cuilahore.edu.pk"
-                  value={formData.email}
+                  id="regNumber"
+                  name="regNumber"
+                  type="text"
+                  placeholder="FA22-BCS-000"
+                  value={formData.regNumber}
                   onChange={handleChange}
                   required
-                  autoComplete="email"
+                  autoComplete="off"
                 />
               </div>
 

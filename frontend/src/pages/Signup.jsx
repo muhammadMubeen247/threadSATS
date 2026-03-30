@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     username: '',
-    email: '',
+    regNumber: '',
     password: '',
   });
 
@@ -32,31 +32,26 @@ export default function Signup() {
     setError('');
   };
 
-  // Optional UX: show what will be derived from email (frontend-only preview)
-  const emailPreview = useMemo(() => {
-    const email = formData.email.trim().toLowerCase();
-    const m = email.match(/^(fa|sp)(\d{2})-([a-z]{2,6})-(\d{1,6})@cuilahore\.edu\.pk$/i);
-    if (!m) return null;
-
-    const session = m[1].toUpperCase() + m[2]; // FA22 / SP22
-    const degree = m[3].toUpperCase(); // BCS / BSE
-    const id = m[4];
-    return {
-      batch: session,
-      rollNumber: `${session}-${degree}-${id}`,
-      degree,
-    };
-  }, [formData.email]);
+  // Derive email from registration number
+  const regLower = formData.regNumber.trim().toLowerCase();
+  const isValidReg = /^(fa|sp)\d{2}-[a-z]{2,6}-\d{1,6}$/i.test(regLower);
+  const derivedEmail = isValidReg ? `${regLower}@cuilahore.edu.pk` : '';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
+    if (!isValidReg) {
+      setError('Registration number must be like FA22-BCS-000 or SP22-BSE-000');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         username: formData.username,
-        email: formData.email,
+        email: derivedEmail,
         password: formData.password,
       };
 
@@ -64,7 +59,7 @@ export default function Signup() {
 
       if (response.success) {
         navigate('/verify-otp', {
-          state: { email: formData.email },
+          state: { email: derivedEmail },
         });
       }
     } catch (err) {
@@ -85,7 +80,7 @@ export default function Signup() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
             <CardDescription className="text-center">
-              Join Personas - COMSATS Social Network
+              Join Personas to connect with your peers, share your thoughts, and explore the community!
             </CardDescription>
           </CardHeader>
 
@@ -103,7 +98,7 @@ export default function Signup() {
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="johndoe"
+                  placeholder="Type your username here"
                   value={formData.username}
                   onChange={handleChange}
                   required
@@ -116,26 +111,28 @@ export default function Signup() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">COMSATS Email</Label>
+                <Label htmlFor="regNumber">Registration Number</Label>
                 <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="fa22-bcs-112@cuilahore.edu.pk"
-                  value={formData.email}
+                  id="regNumber"
+                  name="regNumber"
+                  type="text"
+                  placeholder="FA22-BCS-000"
+                  value={formData.regNumber}
                   onChange={handleChange}
                   required
-                  autoComplete="email"
+                  autoComplete="off"
                 />
-
-                {emailPreview ? (
+                {isValidReg ? (
                   <p className="text-xs text-muted-foreground">
-                    Detected: <span className="font-medium">{emailPreview.rollNumber}</span> • Batch{' '}
-                    <span className="font-medium">{emailPreview.batch}</span>
+                    Email: <span className="font-medium">{derivedEmail}</span>
+                  </p>
+                ) : formData.regNumber.trim() ? (
+                  <p className="text-xs text-red-500">
+                    Format: FA22-BCS-000 or SP22-BSE-000
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Format: fa22-bcs-112@cuilahore.edu.pk (or sp22-bse-112@cuilahore.edu.pk)
+                    Format: FA22-BCS-000 or SP22-BSE-000
                   </p>
                 )}
               </div>

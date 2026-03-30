@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import api from '@/api/axios';
@@ -32,13 +32,14 @@ export default function ForgotPassword() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const [form, setForm] = useState({
-    email: '',
+    regNumber: '',
     otp: '',
     newPassword: '',
     confirmNewPassword: '',
   });
 
-  const trimmedEmail = useMemo(() => form.email.trim(), [form.email]);
+  const trimmedReg = form.regNumber.trim().toLowerCase();
+  const trimmedEmail = trimmedReg.includes('@') ? trimmedReg : `${trimmedReg}@cuilahore.edu.pk`;
 
   const onChange = (e) => {
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
@@ -155,16 +156,16 @@ export default function ForgotPassword() {
             <form onSubmit={sendOtp}>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="regNumber">Registration Number</Label>
                   <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="fa22-bcs-112@cuilahore.edu.pk"
-                    value={form.email}
+                    id="regNumber"
+                    name="regNumber"
+                    type="text"
+                    placeholder="FA22-BCS-000"
+                    value={form.regNumber}
                     onChange={onChange}
                     required
-                    autoComplete="email"
+                    autoComplete="off"
                   />
                 </div>
               </CardContent>
@@ -185,8 +186,8 @@ export default function ForgotPassword() {
             <form onSubmit={verifyOtp}>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" value={trimmedEmail} disabled />
+                  <Label htmlFor="regNumber">Registration Number</Label>
+                  <Input id="regNumber" name="regNumber" value={form.regNumber.trim().toUpperCase()} disabled />
                 </div>
 
                 <div className="space-y-2">
@@ -206,7 +207,7 @@ export default function ForgotPassword() {
 
                 <div className="flex items-center justify-between gap-2">
                   <Button type="button" variant="ghost" onClick={() => setStep('email')}>
-                    Change email
+                    Change
                   </Button>
                   <Button type="button" variant="outline" onClick={sendOtp} disabled={isLoading}>
                     Resend OTP
@@ -226,8 +227,8 @@ export default function ForgotPassword() {
             <form onSubmit={resetPassword}>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" value={trimmedEmail} disabled />
+                  <Label htmlFor="regNumber">Registration Number</Label>
+                  <Input id="regNumber" name="regNumber" value={form.regNumber.trim().toUpperCase()} disabled />
                 </div>
 
                 <div className="space-y-2">
