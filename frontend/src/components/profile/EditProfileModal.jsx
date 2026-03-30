@@ -161,7 +161,7 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
 
       closeCrop();
     } catch (err) {
-      setCropError(err?.response?.data?.message || err?.message || 'Failed to upload image');
+      setCropError(err?.userMessage || err?.message || 'Failed to upload image');
     } finally {
       setIsUploadingImage(false);
     }

@@ -37,7 +37,7 @@ export default function QuoteRepostModal({ open, onClose, threadId, onCreated })
       if (created) onCreated?.(created);
       onClose?.();
     } catch (err) {
-      setError(err?.response?.data?.message || err?.message || 'Failed to quote repost');
+      setError(err?.userMessage || err?.message || 'Failed to quote repost');
     } finally {
       setIsLoading(false);
     }

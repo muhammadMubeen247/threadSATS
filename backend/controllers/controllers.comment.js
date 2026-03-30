@@ -6,6 +6,7 @@ const { resolveMentionsFromText } = require('../utils/mentions');
 const Persona = require('../models/Persona');
 
 const { upsertNotification } = require('../utils/notifications'); // ✅ add
+const { moderate } = require('../utils/moderation');
 
 const formatPersona = (p) => ({
   id: p?._id,
@@ -99,6 +100,12 @@ exports.createComment = async (req, res) => {
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Comment content is required' });
 
+    // ✅ content moderation
+    const modResult = await moderate({ text });
+    if (modResult.hardReject) {
+      return res.status(400).json({ success: false, message: 'Your comment contains content that violates our community guidelines' });
+    }
+
     const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(text);
 
     const comment = await Comment.create({
@@ -108,6 +115,7 @@ exports.createComment = async (req, res) => {
       parentCommentId: null,
       depth: 0,
       mentions: mentionedPersonaIds,
+      ...(modResult.softFlag && { flagged: true }),
     });
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { commentCount: 1 } });
@@ -190,6 +198,12 @@ exports.replyToComment = async (req, res) => {
     const text = typeof content === 'string' ? content.trim() : '';
     if (!text) return res.status(400).json({ success: false, message: 'Reply content is required' });
 
+    // ✅ content moderation
+    const modResult = await moderate({ text });
+    if (modResult.hardReject) {
+      return res.status(400).json({ success: false, message: 'Your reply contains content that violates our community guidelines' });
+    }
+
     const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(text);
 
     const reply = await Comment.create({
@@ -199,6 +213,7 @@ exports.replyToComment = async (req, res) => {
       parentCommentId: commentId,
       depth: (parentComment.depth || 0) + 1,
       mentions: mentionedPersonaIds,
+      ...(modResult.softFlag && { flagged: true }),
     });
 
     await Comment.updateOne({ _id: commentId }, { $inc: { replyCount: 1 } });

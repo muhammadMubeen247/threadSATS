@@ -9,6 +9,7 @@ const { resolveMentionsFromText } = require('../utils/mentions');
 const { extractHashtags } = require('../utils/hashtags'); // ✅ add
 
 const { upsertNotification } = require('../utils/notifications'); // ✅ add
+const { moderate } = require('../utils/moderation');
 
 const formatPersona = (p) => ({
   id: p?._id,
@@ -447,6 +448,12 @@ exports.createThread = async (req, res) => {
       }
     }
 
+    // ✅ content moderation
+    const modResult = await moderate({ text: content });
+    if (modResult.hardReject) {
+      return res.status(400).json({ success: false, message: 'Your post contains content that violates our community guidelines' });
+    }
+
     // ✅ mentions (optionally restrict by mode/type if you want)
     const { personaIds: mentionedPersonaIds } = await resolveMentionsFromText(content);
     const hashtags = extractHashtags(content);
@@ -458,6 +465,7 @@ exports.createThread = async (req, res) => {
       videos: videos || [],
       mentions: mentionedPersonaIds,
       hashtags,
+      ...(modResult.softFlag && { flagged: true }),
     });
 
     // ✅ @mention notifications (aggregate per thread)
@@ -1029,6 +1037,12 @@ exports.createQuoteRepost = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
+    // ✅ content moderation
+    const modResult = await moderate({ text });
+    if (modResult.hardReject) {
+      return res.status(400).json({ success: false, message: 'Your post contains content that violates our community guidelines' });
+    }
+
     const hashtags = extractHashtags(text);
 
     const quote = await Thread.create({
@@ -1038,6 +1052,7 @@ exports.createQuoteRepost = async (req, res) => {
       content: text,
       images: [],
       hashtags,
+      ...(modResult.softFlag && { flagged: true }),
     });
 
     await Thread.findByIdAndUpdate(threadId, { $inc: { repostCount: 1 } });

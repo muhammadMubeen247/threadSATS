@@ -177,7 +177,7 @@ export default function ProfileHeader(props) {
       onProfilePicUpdated?.(newUrl);
       closeCropModal();
     } catch (err) {
-      setPicError(err?.message || 'Failed to upload profile picture');
+      setPicError(err?.userMessage || err?.message || 'Failed to upload profile picture');
     } finally {
       setIsUploadingPic(false);
     }

@@ -1,4 +1,5 @@
 const { uploadToCloudinary, uploadVideoToCloudinary } = require('../utils/cloudinary');
+const { moderate } = require('../utils/moderation');
 
 const MAX_VIDEO_DURATION = 60; // seconds
 const MAX_VIDEOS = 2;
@@ -13,6 +14,18 @@ const uploadImage = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'No image file provided',
+      });
+    }
+
+    // ✅ image moderation before upload
+    const modResult = await moderate({
+      imageBuffers: [req.file.buffer],
+      imageMimeTypes: [req.file.mimetype],
+    });
+    if (modResult.hardReject || modResult.softFlag) {
+      return res.status(400).json({
+        success: false,
+        message: 'This image violates our community guidelines and cannot be uploaded',
       });
     }
 
@@ -66,6 +79,20 @@ const uploadMedia = async (req, res) => {
 
     const imageFiles = req.files.filter((f) => f.mimetype.startsWith('image/'));
     const videoFiles = req.files.filter((f) => f.mimetype.startsWith('video/'));
+
+    // ✅ image moderation before upload
+    if (imageFiles.length > 0) {
+      const modResult = await moderate({
+        imageBuffers: imageFiles.map((f) => f.buffer),
+        imageMimeTypes: imageFiles.map((f) => f.mimetype),
+      });
+      if (modResult.hardReject || modResult.softFlag) {
+        return res.status(400).json({
+          success: false,
+          message: 'One or more images violate our community guidelines and cannot be uploaded',
+        });
+      }
+    }
 
     // Video uploads disabled on free Cloudinary tier — flip VIDEO_ENABLED to re-enable
     const VIDEO_ENABLED = false;

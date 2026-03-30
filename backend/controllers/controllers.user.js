@@ -9,6 +9,7 @@ const crypto = require('crypto');
 
 // ✅ add assertAnonConfigured (used for safety when activeMode === 'anon')
 const { ensurePersonasForUser, getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
+const { moderate } = require('../utils/moderation');
 
 // ❌ REMOVE old formatThread/formatComment that used thread.isAnonymous/comment.isAnonymous + author(User)
 // Helper function to format thread
@@ -846,6 +847,18 @@ exports.updateProfilePic = async (req, res) => {
 
     const userId = req.user.id;
 
+    // ✅ image moderation before upload
+    const modResult = await moderate({
+      imageBuffers: [req.file.buffer],
+      imageMimeTypes: [req.file.mimetype],
+    });
+    if (modResult.hardReject || modResult.softFlag) {
+      return res.status(400).json({
+        success: false,
+        message: 'This image violates our community guidelines and cannot be used as a profile picture',
+      });
+    }
+
     const uploadResult = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
@@ -913,6 +926,18 @@ exports.updateCoverPhoto = async (req, res) => {
     }
 
     const userId = req.user.id;
+
+    // ✅ image moderation before upload
+    const modResult = await moderate({
+      imageBuffers: [req.file.buffer],
+      imageMimeTypes: [req.file.mimetype],
+    });
+    if (modResult.hardReject || modResult.softFlag) {
+      return res.status(400).json({
+        success: false,
+        message: 'This image violates our community guidelines and cannot be used as a cover photo',
+      });
+    }
 
     const uploadResult = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(

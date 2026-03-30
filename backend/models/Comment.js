@@ -38,6 +38,8 @@ const commentSchema = new mongoose.Schema(
     isDeleted: { type: Boolean, default: false },
 
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
+
+    flagged: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

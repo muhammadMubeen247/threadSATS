@@ -78,6 +78,7 @@ export default function ThreadDetail() {
   const [expandedComments, setExpandedComments] = useState({});
 
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
     // ✅ ADD: prevents ReferenceError + enables comment highlight from URL hash
   const [focusedCommentId, setFocusedCommentId] = useState(null);
@@ -266,6 +267,7 @@ export default function ThreadDetail() {
     if (!commentText.trim()) return;
 
     setIsSubmitting(true);
+    setSubmitError('');
     try {
       const response = await api.post(`/threads/${threadId}/comments`, { content: commentText.trim() });
 
@@ -276,7 +278,7 @@ export default function ThreadDetail() {
         setThread((prev) => (prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev));
       }
     } catch (error) {
-      console.error('Failed to post comment:', error);
+      setSubmitError(error?.userMessage || error?.message || 'Failed to post comment');
     } finally {
       setIsSubmitting(false);
     }
@@ -303,6 +305,7 @@ export default function ThreadDetail() {
     if (!replyText.trim()) return;
 
     setIsSubmittingReply(true);
+    setSubmitError('');
     try {
       const response = await api.post(`/comments/${commentId}/reply`, { content: replyText.trim() });
 
@@ -354,7 +357,7 @@ export default function ThreadDetail() {
         setThread((prev) => (prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev));
       }
     } catch (error) {
-      console.error('Failed to post reply:', error);
+      setSubmitError(error?.userMessage || error?.message || 'Failed to post reply');
     } finally {
       setIsSubmittingReply(false);
     }
@@ -654,6 +657,7 @@ export default function ThreadDetail() {
                         onClick={() => {
                           setReplyingTo(null);
                           setReplyText('');
+                          setSubmitError('');
                         }}
                       >
                         Cancel
@@ -668,6 +672,9 @@ export default function ThreadDetail() {
                         Reply
                       </Button>
                     </div>
+                    {submitError && (
+                      <p className="text-sm text-destructive">{submitError}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -997,6 +1004,9 @@ export default function ThreadDetail() {
                   />
                 </div>
               </div>
+              {submitError && (
+                <p className="text-sm text-destructive px-1">{submitError}</p>
+              )}
               <div className="flex justify-end">
                 <Button type="submit" disabled={isSubmitting || !commentText.trim()}>
                   {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

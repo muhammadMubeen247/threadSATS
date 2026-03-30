@@ -71,6 +71,8 @@ const threadSchema = new mongoose.Schema(
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
 
     hashtags: [{ type: String, index: true }],
+
+    flagged: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

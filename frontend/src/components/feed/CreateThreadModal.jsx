@@ -233,7 +233,7 @@ export default function CreateThreadModal({ isOpen, onClose, onThreadCreated }) 
 
       setError(response?.message || 'Failed to create thread');
     } catch (err) {
-      setError(err?.message || 'Failed to create thread');
+      setError(err?.userMessage || err?.message || 'Failed to create thread');
     } finally {
       setIsLoading(false);
     }

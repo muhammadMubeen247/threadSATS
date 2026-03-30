@@ -8,6 +8,7 @@ const cloudinary = require('../config/cloudinary');
 const { Readable } = require('stream');
 const { getViewerContext, assertAnonConfigured } = require('../utils/personaContext');
 const { upsertNotification } = require('../utils/notifications'); // ✅ add
+const { moderate } = require('../utils/moderation');
 
 // helper: determine if viewer <-> target are blocked either way
 const arePersonasBlockedEitherWay = async (viewerPersonaId, targetPersonaId) => {
@@ -854,6 +855,18 @@ exports.updateMyActivePersonaProfilePic = async (req, res) => {
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
     }
 
+    // ✅ image moderation before upload
+    const modResult = await moderate({
+      imageBuffers: [req.file.buffer],
+      imageMimeTypes: [req.file.mimetype],
+    });
+    if (modResult.hardReject || modResult.softFlag) {
+      return res.status(400).json({
+        success: false,
+        message: 'This image violates our community guidelines and cannot be used as a profile picture',
+      });
+    }
+
     const uploadResult = await uploadBufferToCloudinary({
       buffer: req.file.buffer,
       folder: 'threadsats/personas/profile_pics',
@@ -894,6 +907,18 @@ exports.updateMyActivePersonaCoverPhoto = async (req, res) => {
     if (mePersona.type === 'anon') {
       const ok = await assertAnonConfigured(ctx.user);
       if (!ok) return res.status(409).json({ success: false, setupRequired: true, message: 'Anonymous persona setup required' });
+    }
+
+    // ✅ image moderation before upload
+    const modResult = await moderate({
+      imageBuffers: [req.file.buffer],
+      imageMimeTypes: [req.file.mimetype],
+    });
+    if (modResult.hardReject || modResult.softFlag) {
+      return res.status(400).json({
+        success: false,
+        message: 'This image violates our community guidelines and cannot be used as a cover photo',
+      });
     }
 
     const uploadResult = await uploadBufferToCloudinary({
