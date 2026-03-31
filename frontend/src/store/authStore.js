@@ -28,6 +28,17 @@ export const useAuthStore = create(
       setPersonas: (personas) => set({ personas }),
       setActiveMode: (activeMode) => set({ activeMode }),
 
+      // Patch fields on the active persona (e.g. profilePic, coverPhoto)
+      patchActivePersona: (patch) =>
+        set((state) => {
+          const mode = state.activeMode || 'public';
+          const prev = state.personas?.[mode];
+          if (!prev) return state;
+          return {
+            personas: { ...state.personas, [mode]: { ...prev, ...patch } },
+          };
+        }),
+
       checkSession: async () => {
         set({ isLoading: true });
         try {

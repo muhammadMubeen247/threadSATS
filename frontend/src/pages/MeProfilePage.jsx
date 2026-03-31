@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import api from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
@@ -126,6 +126,16 @@ export default function MeProfilePage() {
     })();
   }, [isAuthenticated]);
 
+  const patchActivePersona = useAuthStore((s) => s.patchActivePersona);
+
+  const handleProfileUpdated = useCallback((patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    // Update local profile state so ProfileHeader re-renders immediately
+    setProfile((prev) => (prev ? { ...prev, ...patch } : prev));
+    // Update auth store so Navbar avatar reflects the change
+    patchActivePersona(patch);
+  }, [patchActivePersona]);
+
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   if (error) {
@@ -154,7 +164,8 @@ export default function MeProfilePage() {
                 isOwnProfile={true}
                 onFollowToggle={() => {}}
                 onEditProfile={() => navigate('/home')}
-                onProfilePicUpdated={() => {}}
+                onProfilePicUpdated={(url) => handleProfileUpdated({ profilePic: url })}
+                onProfileUpdated={handleProfileUpdated}
               />
 
               <div className="px-6 pt-3 text-xs text-muted-foreground">

@@ -942,6 +942,66 @@ exports.updateMyActivePersonaCoverPhoto = async (req, res) => {
   }
 };
 
+// ✅ DELETE /api/personas/me/profile-pic
+exports.removeMyActivePersonaProfilePic = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type profilePic');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    if (!mePersona.profilePic) {
+      return res.status(400).json({ success: false, message: 'No profile picture to remove' });
+    }
+
+    mePersona.profilePic = '';
+    await mePersona.save();
+
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { profilePic: '' } });
+    }
+
+    return res.status(200).json({ success: true, message: 'Profile picture removed', profilePic: '' });
+  } catch (error) {
+    console.error('removeMyActivePersonaProfilePic error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ DELETE /api/personas/me/cover-photo
+exports.removeMyActivePersonaCoverPhoto = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const userId = ctx.user._id;
+    const personaId = ctx.activePersonaId;
+
+    const mePersona = await Persona.findOne({ _id: personaId, ownerUserId: userId }).select('_id type coverPhoto');
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    if (!mePersona.coverPhoto) {
+      return res.status(400).json({ success: false, message: 'No cover photo to remove' });
+    }
+
+    mePersona.coverPhoto = '';
+    await mePersona.save();
+
+    if (mePersona.type === 'public') {
+      await User.updateOne({ _id: userId }, { $set: { coverPhoto: '' } });
+    }
+
+    return res.status(200).json({ success: true, message: 'Cover photo removed', coverPhoto: '' });
+  } catch (error) {
+    console.error('removeMyActivePersonaCoverPhoto error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
 // ✅ GET /api/personas/search?q=... (optionalAuth)
 // handle prefix search using regex on indexed "handle"
 exports.searchPersonas = async (req, res) => {

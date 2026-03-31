@@ -20,6 +20,8 @@ const {
   updateMyActivePersonaBio,
   updateMyActivePersonaProfilePic,
   updateMyActivePersonaCoverPhoto,
+  removeMyActivePersonaProfilePic,
+  removeMyActivePersonaCoverPhoto,
 
   searchPersonas,
 
@@ -141,6 +143,8 @@ router.delete('/:handle/block', handleValidation, validate, protect, unblockPers
 router.put('/me/handle', protect, handleUpdateValidation, validate, updateMyActivePersonaHandle);
 router.put('/me/bio', protect, bioUpdateValidation, validate, updateMyActivePersonaBio);
 router.put('/me/profile-pic', protect, uploadSingle, handleUploadError, updateMyActivePersonaProfilePic);
+router.delete('/me/profile-pic', protect, removeMyActivePersonaProfilePic);
 router.put('/me/cover-photo', protect, uploadSingle, handleUploadError, updateMyActivePersonaCoverPhoto);
+router.delete('/me/cover-photo', protect, removeMyActivePersonaCoverPhoto);
 
 module.exports = router;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Cropper from 'react-easy-crop';
-import { X, Camera } from 'lucide-react';
+import { X, Camera, Trash2 } from 'lucide-react';
 
 import api from '@/api/axios';
 import { getCroppedBlob } from '@/utils/cropImage';
@@ -44,8 +44,13 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
 
   const [cropError, setCropError] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isRemovingImage, setIsRemovingImage] = useState(false);
 
-  const isBusy = isSaving || isUploadingImage;
+  // Local image state for instant preview updates
+  const [localProfilePic, setLocalProfilePic] = useState(profile?.profilePic || '');
+  const [localCoverPhoto, setLocalCoverPhoto] = useState(profile?.coverPhoto || '');
+
+  const isBusy = isSaving || isUploadingImage || isRemovingImage;
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +58,8 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
     setUsername(initialUsername);
     setBio(initialBio);
     setSaveError('');
+    setLocalProfilePic(profile?.profilePic || '');
+    setLocalCoverPhoto(profile?.coverPhoto || '');
 
     // reset crop state
     setIsCropOpen(false);
@@ -130,6 +137,31 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
     setCropSrc('');
   };
 
+  // ---------- remove image ----------
+  const removeImage = async (target) => {
+    if (isBusy) return;
+
+    setIsRemovingImage(true);
+    setSaveError('');
+
+    try {
+      const endpoint = target === 'cover' ? '/personas/me/cover-photo' : '/personas/me/profile-pic';
+      await api.delete(endpoint);
+
+      if (target === 'cover') {
+        setLocalCoverPhoto('');
+        onUpdated?.({ coverPhoto: '' });
+      } else {
+        setLocalProfilePic('');
+        onUpdated?.({ profilePic: '' });
+      }
+    } catch (err) {
+      setSaveError(err?.userMessage || err?.message || 'Failed to remove image');
+    } finally {
+      setIsRemovingImage(false);
+    }
+  };
+
   // ---------- crop + upload ----------
   const cropAspect = cropTarget === 'cover' ? 3 / 1 : 1;
   const cropShape = cropTarget === 'cover' ? 'rect' : 'round';
@@ -157,7 +189,13 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
       const newUrl = cropTarget === 'cover' ? res?.coverPhoto : res?.profilePic;
       if (!newUrl) throw new Error('Upload succeeded but no image URL returned.');
 
-      onUpdated?.(cropTarget === 'cover' ? { coverPhoto: newUrl } : { profilePic: newUrl });
+      if (cropTarget === 'cover') {
+        setLocalCoverPhoto(newUrl);
+        onUpdated?.({ coverPhoto: newUrl });
+      } else {
+        setLocalProfilePic(newUrl);
+        onUpdated?.({ profilePic: newUrl });
+      }
 
       closeCrop();
     } catch (err) {
@@ -237,9 +275,9 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
 
             {/* Cover */}
             <div className="relative h-40 sm:h-48 rounded-lg overflow-hidden bg-black/90">
-              {profile?.coverPhoto ? (
+              {localCoverPhoto ? (
                 <img
-                  src={profile.coverPhoto}
+                  src={localCoverPhoto}
                   alt="Cover"
                   className="absolute inset-0 w-full h-full object-cover object-center opacity-90"
                 />
@@ -259,6 +297,20 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
                 <Camera className="h-5 w-5" />
               </Button>
 
+              {localCoverPhoto ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute top-2 right-2 rounded-full h-8 w-8"
+                  onClick={() => removeImage('cover')}
+                  disabled={isBusy}
+                  title="Remove cover photo"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+
               <input
                 ref={coverInputRef}
                 type="file"
@@ -273,9 +325,9 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
             <div className="flex items-start gap-4">
               <div className="relative shrink-0">
                 <div className="h-20 w-20 rounded-full overflow-hidden bg-muted border">
-                  {profile?.profilePic ? (
+                  {localProfilePic ? (
                     <img
-                      src={profile.profilePic}
+                      src={localProfilePic}
                       alt="Profile"
                       className="h-full w-full object-cover"
                     />
@@ -297,6 +349,20 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
                 >
                   <Camera className="h-4 w-4" />
                 </Button>
+
+                {localProfilePic ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="absolute -top-1 -right-1 rounded-full h-6 w-6"
+                    onClick={() => removeImage('profile')}
+                    disabled={isBusy}
+                    title="Remove profile picture"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                ) : null}
 
                 <input
                   ref={profileInputRef}
@@ -354,15 +420,15 @@ export default function EditProfileModal({ open, onClose, profile, onUpdated }) 
 
       {/* Crop modal (opens after selecting profile/cover image) */}
       <Dialog open={isCropOpen} onOpenChange={(v) => (!v ? closeCrop() : null)}>
-        <DialogContent className="max-w-xl">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">
+        <DialogContent hideClose className="max-w-xl">
+          <DialogHeader className="flex flex-row items-center justify-between space-y-0">
+            <DialogTitle>
               {cropTarget === 'cover' ? 'Adjust cover photo' : 'Adjust profile picture'}
-            </h3>
+            </DialogTitle>
             <Button type="button" variant="ghost" size="icon" onClick={closeCrop} disabled={isUploadingImage}>
               <X className="h-5 w-5" />
             </Button>
-          </div>
+          </DialogHeader>
 
           {cropError ? <p className="text-sm text-red-500">{cropError}</p> : null}
 
