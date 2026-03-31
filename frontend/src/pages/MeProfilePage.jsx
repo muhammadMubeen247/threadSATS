@@ -38,7 +38,13 @@ function MyThreadsTab() {
     <div>
       {threads.map((t) => {
         const key = t?.type === 'repost' ? t?.repost?.id : t?.id || t?._id;
-        return <ThreadCard key={key} thread={t} />;
+        return (
+          <ThreadCard
+            key={key}
+            thread={t}
+            onDelete={(id) => setThreads((prev) => prev.filter((x) => (x?.type === 'repost' ? x?.repost?.id : x?.id || x?._id) !== id))}
+          />
+        );
       })}
       {!hasMore ? <p className="text-center text-muted-foreground p-4">No more threads</p> : null}
     </div>
@@ -73,7 +79,11 @@ function MyLikesTab() {
   return (
     <div>
       {items.map((t) => (
-        <ThreadCard key={t.id} thread={t} />
+        <ThreadCard
+          key={t.id}
+          thread={t}
+          onDelete={(id) => setItems((prev) => prev.filter((x) => (x?.id || x?._id) !== id))}
+        />
       ))}
     </div>
   );

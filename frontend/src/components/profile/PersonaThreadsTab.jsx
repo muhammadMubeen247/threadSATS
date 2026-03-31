@@ -70,6 +70,7 @@ export default function PersonaThreadsTab({ handle }) {
           <ThreadCard
             key={key}
             thread={thread}
+            onDelete={(id) => setThreads((prev) => prev.filter((t) => (t?.id || t?._id) !== id))}
             onUpdate={(updateKey, patch) => {
               setThreads((prev) =>
                 prev.map((t) => {

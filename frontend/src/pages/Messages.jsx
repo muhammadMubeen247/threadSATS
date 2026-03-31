@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MoreHorizontal, Search, Smile, Check, CheckCheck, X, Inbox, Trash2, ChevronDown, CheckSquare } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Search, Smile, Check, CheckCheck, X, Inbox, Trash2, ChevronDown, CheckSquare, ShieldBan } from 'lucide-react';
 
 import api from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
@@ -23,16 +23,18 @@ function containsId(arr, id) {
   return Array.isArray(arr) && arr.some((x) => String(x) === s);
 }
 
-function ConversationRow({ convo, active, onOpen }) {
+function ConversationRow({ convo, active, onOpen, myType }) {
   const other = convo?.other;
   const last = convo?.lastMessage;
+  const isCrossType = myType && other?.type && myType !== other.type;
 
   return (
     <button
-      onClick={() => onOpen(convo.id)}
+      onClick={() => onOpen(convo.id, other?.handle, other?.type)}
       className={[
         'w-full text-left rounded-xl px-3 py-2 transition-colors',
         active ? 'bg-muted/40' : 'hover:bg-muted/25',
+        isCrossType ? 'opacity-60' : '',
       ].join(' ')}
       type="button"
     >
@@ -44,14 +46,21 @@ function ConversationRow({ convo, active, onOpen }) {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <div className="font-semibold truncate">@{other?.handle}</div>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-semibold truncate">@{other?.handle}</span>
+              {isCrossType ? (
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                  {other.type === 'anon' ? 'Anon' : 'Public'}
+                </span>
+              ) : null}
+            </div>
             <div className="text-xs text-muted-foreground shrink-0">
               {formatTime(last?.createdAt)}
             </div>
           </div>
 
           <div className="text-sm text-muted-foreground truncate">
-            {last?.text || 'No messages yet'}
+            {isCrossType ? `Switch to ${other.type} mode to message` : (last?.text || 'No messages yet')}
           </div>
         </div>
       </div>
@@ -59,7 +68,7 @@ function ConversationRow({ convo, active, onOpen }) {
   );
 }
 
-function ConversationList({ conversations, activeId, onOpen, onBack }) {
+function ConversationList({ conversations, activeId, onOpen, onBack, activeMode }) {
   const [q, setQ] = useState('');
 
   // ✅ remote contact search
@@ -94,14 +103,21 @@ function ConversationList({ conversations, activeId, onOpen, onBack }) {
         });
 
         const results = Array.isArray(res.results) ? res.results : [];
-        // normalize into ConversationRow shape
+        // normalize into ConversationRow shape; pull lastMessage from existing conversations
         setRemote(
-          results.map((r) => ({
-            id: r.conversationId,
-            updatedAt: r.updatedAt,
-            other: r.persona,
-            lastMessage: null,
-          }))
+          results.map((r) => {
+            const existing = r.conversationId
+              ? conversations.find((c) => String(c.id) === String(r.conversationId))
+              : null;
+            return {
+              id: r.conversationId || null,
+              _handle: r.persona?.handle,
+              updatedAt: existing?.updatedAt || r.updatedAt,
+              other: r.persona,
+              lastMessage: existing?.lastMessage || null,
+              isExistingContact: r.isExistingContact,
+            };
+          })
         );
       } catch (e) {
         if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') return;
@@ -161,7 +177,7 @@ function ConversationList({ conversations, activeId, onOpen, onBack }) {
       <div className="flex-1 px-2 pb-3 overflow-y-auto">
         <div className="space-y-1">
           {list.map((c) => (
-            <ConversationRow key={c.id} convo={c} active={c.id === activeId} onOpen={onOpen} />
+            <ConversationRow key={c.id || `h:${c._handle}`} convo={c} active={c.id === activeId} onOpen={onOpen} myType={activeMode === 'anon' ? 'anon' : 'public'} />
           ))}
         </div>
 
@@ -296,6 +312,58 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   const emojiWrapRef = useRef(null);
   const pickerRef = useRef(null);
   const inputRef = useRef(null);
+
+  // ✅ three-dot menu + block
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+
+  // close more menu on outside click
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const onDown = (e) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) setMoreMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [moreMenuOpen]);
+
+  // check block status when conversation loads
+  useEffect(() => {
+    const otherHandle = conversationMeta?.other?.handle;
+    if (!otherHandle) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/personas/me/blocked');
+        const list = res.results || res.blocked || res.personas || [];
+        const blocked = list.some((p) => p.handle === otherHandle);
+        if (!cancelled) setIsBlocked(blocked);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [conversationMeta?.other?.handle]);
+
+  const handleToggleBlock = useCallback(async () => {
+    const otherHandle = conversationMeta?.other?.handle;
+    if (!otherHandle || blockBusy) return;
+    setBlockBusy(true);
+    try {
+      if (isBlocked) {
+        await api.delete(`/personas/${otherHandle}/block`);
+        setIsBlocked(false);
+      } else {
+        await api.post(`/personas/${otherHandle}/block`);
+        setIsBlocked(true);
+      }
+    } catch (e) {
+      console.error('Block/unblock failed:', e);
+    } finally {
+      setBlockBusy(false);
+      setMoreMenuOpen(false);
+    }
+  }, [conversationMeta?.other?.handle, blockBusy, isBlocked]);
 
   // ✅ multi-select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -834,13 +902,35 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
               <Search className="h-4 w-4 text-muted-foreground" />
             </button>
 
-            <button
-              className="h-9 w-9 inline-flex items-center justify-center rounded-full hover:bg-muted/30"
-              type="button"
-              title="More"
-            >
-              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-            </button>
+            <div ref={moreMenuRef} className="relative">
+              <button
+                className="h-9 w-9 inline-flex items-center justify-center rounded-full hover:bg-muted/30"
+                type="button"
+                title="More"
+                onClick={() => setMoreMenuOpen((v) => !v)}
+              >
+                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+              </button>
+
+              {moreMenuOpen ? (
+                <div className="absolute right-0 top-full mt-1 z-50 flex flex-col gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-lg min-w-[160px]">
+                  <button
+                    type="button"
+                    onClick={handleToggleBlock}
+                    disabled={blockBusy}
+                    className={[
+                      'flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap',
+                      isBlocked
+                        ? 'text-muted-foreground hover:bg-muted/30'
+                        : 'text-destructive hover:bg-destructive/10',
+                    ].join(' ')}
+                  >
+                    <ShieldBan className="h-4 w-4" />
+                    {blockBusy ? 'Processing…' : isBlocked ? 'Unblock' : 'Block'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         )}
@@ -944,7 +1034,25 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
         )}
       </div>
 
-      {/* Composer */}
+      {/* Composer / Blocked banner */}
+      {isBlocked ? (
+        <div className="border-t border-border p-4">
+          <div className="flex flex-col items-center gap-2 rounded-xl bg-muted/30 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <ShieldBan className="h-4 w-4" />
+              <span>You blocked <strong>@{conversationMeta?.other?.handle}</strong></span>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleBlock}
+              disabled={blockBusy}
+              className="text-xs text-primary hover:underline disabled:opacity-50"
+            >
+              {blockBusy ? 'Processing…' : 'Unblock'}
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="border-t border-border p-3">
         <div ref={emojiWrapRef} className="relative">
           {emojiOpen ? (
@@ -991,6 +1099,7 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -1090,7 +1199,34 @@ export default function Messages() {
   }, [conversationId, conversations, navigate]);
 
   // ✅ do NOT stack chat routes in history; replace instead
-  const openConversation = (id) => navigate(`/messages/${id}`, { replace: true });
+  const openConversation = useCallback(async (id, handle, otherType) => {
+    // Type mismatch check
+    const myType = activeMode === 'anon' ? 'anon' : 'public';
+    if (otherType && myType !== otherType) {
+      alert(`This is ${otherType === 'anon' ? 'an anonymous' : 'a public'} persona. Switch to ${otherType} mode to message them.`);
+      return;
+    }
+    if (id) {
+      navigate(`/messages/${id}`, { replace: true });
+      return;
+    }
+    // New contact — create conversation first
+    if (!handle) return;
+    try {
+      const res = await api.post('/dm/conversations', { targetHandle: handle });
+      const convoId = res.conversation?.id;
+      if (convoId) {
+        // Add to conversation list so it doesn't get redirected away
+        setConversations((prev) => {
+          if (prev.some((c) => c.id === convoId)) return prev;
+          return [{ id: convoId, other: res.conversation.other, lastMessage: null, updatedAt: new Date().toISOString() }, ...prev];
+        });
+        navigate(`/messages/${convoId}`, { replace: true });
+      }
+    } catch (e) {
+      console.error('Failed to create conversation:', e);
+    }
+  }, [navigate, activeMode]);
 
   // ✅ back: now this will go to the page before Messages (home/profile/etc)
   const goBack = () => {
@@ -1120,6 +1256,7 @@ export default function Messages() {
             activeId={conversationId}
             onOpen={openConversation}
             onBack={goBack}
+            activeMode={activeMode}
           />
         </div>
 

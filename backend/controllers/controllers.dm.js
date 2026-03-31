@@ -261,7 +261,7 @@ exports.sendMessage = async (req, res) => {
 const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // ✅ GET /dm/search/contacts?q=...
-// Searches ONLY among personas you already have a conversation with.
+// Searches ALL same-type personas, prioritised: existing contacts > following/followers > others.
 exports.searchContacts = async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
@@ -273,41 +273,78 @@ exports.searchContacts = async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
     const rx = new RegExp(escapeRegex(q), 'i');
 
+    const mePersona = await Persona.findById(ctx.activePersonaId)
+      .select('type following followers blocked')
+      .lean();
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    const me = ctx.activePersonaId.toString();
+    const blockedSet = new Set((mePersona.blocked || []).map((id) => id.toString()));
+    const followingSet = new Set((mePersona.following || []).map((id) => id.toString()));
+    const followersSet = new Set((mePersona.followers || []).map((id) => id.toString()));
+
+    // 1) Existing conversation contacts (highest priority)
     const conversations = await Conversation.find({ participants: ctx.activePersonaId })
       .populate('participants', 'handle displayName profilePic type')
       .sort({ updatedAt: -1 })
       .lean();
 
-    const me = ctx.activePersonaId.toString();
-    const seen = new Set();
-    const results = [];
-
+    const convoMap = new Map(); // personaId -> conversationId
     for (const c of conversations) {
       const other = (c.participants || []).find((p) => p?._id?.toString() !== me);
-      if (!other) continue;
-
-      const otherId = other._id.toString();
-      if (seen.has(otherId)) continue;
-
-      const handle = other.handle || '';
-      const displayName = other.displayName || '';
-
-      if (rx.test(handle) || rx.test(displayName)) {
-        seen.add(otherId);
-        results.push({
-          conversationId: c._id,
-          persona: {
-            id: other._id,
-            handle: other.handle,
-            displayName: other.displayName || other.handle,
-            profilePic: other.profilePic || '',
-            type: other.type,
-          },
-          updatedAt: c.updatedAt,
-        });
-        if (results.length >= limit) break;
-      }
+      if (other) convoMap.set(other._id.toString(), c._id);
     }
+
+    // 2) Search all personas (both types) matching query by handle, displayName, or rollNumber
+    const allMatches = await Persona.find({
+      _id: { $ne: ctx.activePersonaId },
+      isConfigured: { $ne: false },
+      $or: [
+        { handle: { $regex: rx } },
+        { displayName: { $regex: rx } },
+        { rollNumber: { $regex: rx } },
+      ],
+    })
+      .select('_id handle displayName profilePic type rollNumber')
+      .limit(200) // fetch generously, then sort + trim
+      .lean();
+
+    // 3) Score and sort: existing contact=3, following/follower=2/1, other=0
+    const scored = [];
+    for (const p of allMatches) {
+      const pid = p._id.toString();
+      if (pid === me) continue;
+      if (blockedSet.has(pid)) continue;
+
+      // check reverse block (other blocked me)
+      // skip heavy per-user query; we already filter blocked from our side
+
+      let priority = 0;
+      if (convoMap.has(pid)) priority += 3;
+      if (followingSet.has(pid)) priority += 2;
+      if (followersSet.has(pid)) priority += 1;
+
+      scored.push({
+        persona: p,
+        conversationId: convoMap.get(pid) || null,
+        priority,
+      });
+    }
+
+    scored.sort((a, b) => b.priority - a.priority);
+
+    const results = scored.slice(0, limit).map((s) => ({
+      conversationId: s.conversationId,
+      persona: {
+        id: s.persona._id,
+        handle: s.persona.handle,
+        displayName: s.persona.displayName || s.persona.handle,
+        profilePic: s.persona.profilePic || '',
+        type: s.persona.type,
+      },
+      updatedAt: null,
+      isExistingContact: !!s.conversationId,
+    }));
 
     return res.status(200).json({ success: true, results });
   } catch (e) {
