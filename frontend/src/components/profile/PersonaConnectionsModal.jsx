@@ -13,7 +13,7 @@ const getInitials = (handle) => {
   return s ? s.slice(0, 2).toUpperCase() : 'U';
 };
 
-export default function PersonaConnectionsModal({ open, onOpenChange, handle, mode }) {
+export default function PersonaConnectionsModal({ open, onOpenChange, handle, mode, isOwnProfile, onRemoveCount }) {
   const navigate = useNavigate();
 
   const cleanHandle = useMemo(() => normalizeHandle(handle), [handle]);
@@ -25,6 +25,8 @@ export default function PersonaConnectionsModal({ open, onOpenChange, handle, mo
 
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [removedSet, setRemovedSet] = useState(new Set());
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState('');
 
   const canLoadMore = page < pages;
@@ -62,19 +64,55 @@ export default function PersonaConnectionsModal({ open, onOpenChange, handle, mo
     setPage(1);
     setPages(0);
     setError('');
+    setRemovedSet(new Set());
     fetchPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cleanHandle, mode]);
 
+  const handleClose = async (v) => {
+    if (v) { onOpenChange?.(v); return; }
+
+    // On close: fire API calls for all pending removals
+    if (removedSet.size > 0) {
+      setClosing(true);
+      const promises = [...removedSet].map((h) =>
+        mode === 'followers'
+          ? api.delete(`/personas/${h}/follower`).catch(() => {})
+          : api.delete(`/personas/${h}/follow`).catch(() => {})
+      );
+      await Promise.all(promises);
+      onRemoveCount?.(removedSet.size);
+      setClosing(false);
+    }
+
+    onOpenChange?.(false);
+  };
+
   const goToProfile = (h) => {
     const dest = normalizeHandle(h);
     if (!dest) return;
+    // Navigate without committing removals (discard pending)
     onOpenChange?.(false);
     navigate(`/@${dest}`);
   };
 
+  const toggleRemove = (personaHandle) => {
+    const h = normalizeHandle(personaHandle);
+    if (!h || closing) return;
+
+    setRemovedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(h)) {
+        next.delete(h);
+      } else {
+        next.add(h);
+      }
+      return next;
+    });
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -100,27 +138,43 @@ export default function PersonaConnectionsModal({ open, onOpenChange, handle, mo
                 const h = p?.handle || p?.username;
                 const displayName = p?.displayName || h || 'Profile';
                 const roll = p?.type === 'public' ? (p?.rollNumber || '') : '';
+                const isRemoved = removedSet.has(normalizeHandle(h));
 
                 return (
-                  <li key={p?.id} className="py-3">
-                    <button
-                      type="button"
-                      className="w-full text-left flex items-center gap-3 hover:bg-accent/50 rounded-md px-2 py-2"
-                      onClick={() => goToProfile(h)}
-                    >
-                      <Avatar className="h-9 w-9">
-                        <AvatarImage src={p?.profilePic} alt={h || 'profile'} />
-                        <AvatarFallback>{getInitials(h)}</AvatarFallback>
-                      </Avatar>
+                  <li key={p?.id} className={`py-3${isRemoved ? ' opacity-60' : ''}`}>
+                    <div className="flex items-center gap-3 px-2 py-2">
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left hover:bg-accent/50 rounded-md px-1 py-1"
+                        onClick={() => goToProfile(h)}
+                      >
+                        <Avatar className="h-9 w-9 shrink-0">
+                          <AvatarImage src={p?.profilePic} alt={h || 'profile'} />
+                          <AvatarFallback>{getInitials(h)}</AvatarFallback>
+                        </Avatar>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">@{h}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {displayName}
-                          {roll ? ` • ${roll}` : ''}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">@{h}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {displayName}
+                            {roll ? ` • ${roll}` : ''}
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+
+                      {isOwnProfile ? (
+                        <Button
+                          type="button"
+                          variant={isRemoved ? 'ghost' : 'outline'}
+                          size="sm"
+                          className="shrink-0 text-xs"
+                          disabled={closing}
+                          onClick={() => toggleRemove(h)}
+                        >
+                          {isRemoved ? 'Undo' : (mode === 'followers' ? 'Remove' : 'Unfollow')}
+                        </Button>
+                      ) : null}
+                    </div>
                   </li>
                 );
               })}

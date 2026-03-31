@@ -406,6 +406,37 @@ exports.unfollowPersonaByHandle = async (req, res) => {
   }
 };
 
+// DELETE /api/personas/:handle/follower
+// Removes :handle from MY followers list (i.e. force-unfollows them from me)
+exports.removeFollowerByHandle = async (req, res) => {
+  try {
+    const ctx = await requireViewerContext(req, res);
+    if (!ctx) return;
+
+    const handle = normalizeHandle(req.params.handle);
+    if (!handle) return res.status(400).json({ success: false, message: 'Handle is required' });
+
+    const target = await Persona.findOne({ handle }).select('_id');
+    if (!target) return res.status(404).json({ success: false, message: 'Profile not found' });
+
+    const viewerPersonaId = ctx.activePersonaId;
+
+    if (target._id.toString() === viewerPersonaId.toString()) {
+      return res.status(400).json({ success: false, message: 'Cannot remove yourself' });
+    }
+
+    await Promise.all([
+      Persona.updateOne({ _id: viewerPersonaId }, { $pull: { followers: target._id } }),
+      Persona.updateOne({ _id: target._id }, { $pull: { following: viewerPersonaId } }),
+    ]);
+
+    return res.status(200).json({ success: true, message: 'Follower removed' });
+  } catch (error) {
+    console.error('removeFollowerByHandle error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
 // POST /api/personas/:handle/block
 exports.blockPersonaByHandle = async (req, res) => {
   try {

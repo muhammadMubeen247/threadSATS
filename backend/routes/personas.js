@@ -9,6 +9,7 @@ const {
   getPersonaProfileByHandle,
   followPersonaByHandle,
   unfollowPersonaByHandle,
+  removeFollowerByHandle,
   blockPersonaByHandle,
   unblockPersonaByHandle,
   getMyBlockedPersonas, // ✅ already imported
@@ -135,6 +136,7 @@ router.get('/suggested', protect, getSuggestedPersonas);
 // protected interactions
 router.post('/:handle/follow', handleValidation, validate, protect, followPersonaByHandle);
 router.delete('/:handle/follow', handleValidation, validate, protect, unfollowPersonaByHandle);
+router.delete('/:handle/follower', handleValidation, validate, protect, removeFollowerByHandle);
 
 router.post('/:handle/block', handleValidation, validate, protect, blockPersonaByHandle);
 router.delete('/:handle/block', handleValidation, validate, protect, unblockPersonaByHandle);

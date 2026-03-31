@@ -22,6 +22,7 @@ export default function ProfileHeader(props) {
 
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [followError, setFollowError] = useState('');
 
@@ -66,8 +67,9 @@ export default function ProfileHeader(props) {
   useEffect(() => {
     setIsFollowing(Boolean(profile?.isFollowing));
     setFollowersCount(Number(profile?.followersCount ?? 0));
+    setFollowingCount(Number(profile?.followingCount ?? 0));
     setIsBlocked(Boolean(profile?.isBlocked)); // ✅
-  }, [profile?.isFollowing, profile?.followersCount, profile?.isBlocked]);
+  }, [profile?.isFollowing, profile?.followersCount, profile?.followingCount, profile?.isBlocked]);
 
   // close actions dropdown on outside click / escape
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function ProfileHeader(props) {
                 </button>
 
                 <button className="hover:underline" type="button" onClick={openFollowing}>
-                  <span className="font-bold">{profile?.followingCount}</span>
+                  <span className="font-bold">{followingCount}</span>
                   <span className="text-muted-foreground ml-1">Following</span>
                 </button>
 
@@ -524,6 +526,14 @@ export default function ProfileHeader(props) {
         onOpenChange={setConnectionsOpen}
         handle={profile?.username}
         mode={connectionsMode}
+        isOwnProfile={isActivePersona}
+        onRemoveCount={(count) => {
+          if (connectionsMode === 'followers') {
+            setFollowersCount((c) => Math.max(0, c - count));
+          } else {
+            setFollowingCount((c) => Math.max(0, c - count));
+          }
+        }}
       />
     </>
   );
