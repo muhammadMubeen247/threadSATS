@@ -8,6 +8,8 @@ import {
   Heart,
   MessageCircle,
   Repeat2,
+  ImagePlus,
+  X,
 } from 'lucide-react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import Navbar from '@/components/layout/Navbar';
@@ -27,6 +29,7 @@ import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 import QuoteRepostModal from '@/components/feed/QuoteRepostModal';
+import MediaGrid from '@/components/feed/MediaGrid';
 import MentionTextarea from '@/components/common/MentionTextarea';
 import RichText from '@/components/common/RichText';
 
@@ -59,6 +62,7 @@ export default function ThreadDetail() {
 
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commentImages, setCommentImages] = useState([]); // { file, previewUrl }[]
 
   // Pagination for top-level comments
   const [page, setPage] = useState(1);
@@ -69,6 +73,7 @@ export default function ThreadDetail() {
   const [replyingTo, setReplyingTo] = useState(null); // { commentId, parentCommentId }
   const [replyText, setReplyText] = useState('');
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
+  const [replyImages, setReplyImages] = useState([]); // { file, previewUrl }[]
 
   // Loaded replies cache (per comment)
   const [loadedReplies, setLoadedReplies] = useState({});
@@ -79,6 +84,70 @@ export default function ThreadDetail() {
 
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  const commentFileRef = useRef(null);
+  const replyFileRef = useRef(null);
+
+  const MAX_COMMENT_IMAGES = 4;
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+  const handleCommentImageSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setSubmitError('');
+    const remaining = MAX_COMMENT_IMAGES - commentImages.length;
+    const accepted = [];
+    for (const file of files.slice(0, remaining)) {
+      if (!file.type?.startsWith('image/')) { setSubmitError('Only images are allowed'); continue; }
+      if (file.size > MAX_IMAGE_BYTES) { setSubmitError('Each image must be ≤ 5 MB'); continue; }
+      accepted.push({ file, previewUrl: URL.createObjectURL(file) });
+    }
+    if (files.length > remaining) setSubmitError(`Max ${MAX_COMMENT_IMAGES} images per comment`);
+    if (accepted.length) setCommentImages((prev) => [...prev, ...accepted]);
+    if (commentFileRef.current) commentFileRef.current.value = '';
+  };
+
+  const handleReplyImageSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setSubmitError('');
+    const remaining = MAX_COMMENT_IMAGES - replyImages.length;
+    const accepted = [];
+    for (const file of files.slice(0, remaining)) {
+      if (!file.type?.startsWith('image/')) { setSubmitError('Only images are allowed'); continue; }
+      if (file.size > MAX_IMAGE_BYTES) { setSubmitError('Each image must be ≤ 5 MB'); continue; }
+      accepted.push({ file, previewUrl: URL.createObjectURL(file) });
+    }
+    if (files.length > remaining) setSubmitError(`Max ${MAX_COMMENT_IMAGES} images per comment`);
+    if (accepted.length) setReplyImages((prev) => [...prev, ...accepted]);
+    if (replyFileRef.current) replyFileRef.current.value = '';
+  };
+
+  const removeCommentImage = (index) => {
+    setCommentImages((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) try { URL.revokeObjectURL(item.previewUrl); } catch {}
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const removeReplyImage = (index) => {
+    setReplyImages((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) try { URL.revokeObjectURL(item.previewUrl); } catch {}
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const uploadCommentMedia = async (mediaItems) => {
+    if (!mediaItems.length) return [];
+    const formData = new FormData();
+    mediaItems.forEach(({ file }) => formData.append('media', file));
+    const res = await api.post('/upload/media', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res?.images || [];
+  };
 
     // ✅ ADD: prevents ReferenceError + enables comment highlight from URL hash
   const [focusedCommentId, setFocusedCommentId] = useState(null);
@@ -264,16 +333,25 @@ export default function ThreadDetail() {
 
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
-    if (!commentText.trim()) return;
+    if (!commentText.trim() && commentImages.length === 0) return;
 
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      const response = await api.post(`/threads/${threadId}/comments`, { content: commentText.trim() });
+      let uploadedImages = [];
+      if (commentImages.length > 0) {
+        uploadedImages = await uploadCommentMedia(commentImages);
+      }
+
+      const response = await api.post(`/threads/${threadId}/comments`, {
+        content: commentText.trim(),
+        images: uploadedImages,
+      });
 
       if (response.success) {
         setComments((prev) => [response.comment, ...prev]);
         setCommentText('');
+        setCommentImages([]);
         setTotalComments((prev) => prev + 1);
         setThread((prev) => (prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev));
       }
@@ -302,12 +380,20 @@ export default function ThreadDetail() {
   };
 
   const handleReplySubmit = async (commentId, parentCommentId) => {
-    if (!replyText.trim()) return;
+    if (!replyText.trim() && replyImages.length === 0) return;
 
     setIsSubmittingReply(true);
     setSubmitError('');
     try {
-      const response = await api.post(`/comments/${commentId}/reply`, { content: replyText.trim() });
+      let uploadedImages = [];
+      if (replyImages.length > 0) {
+        uploadedImages = await uploadCommentMedia(replyImages);
+      }
+
+      const response = await api.post(`/comments/${commentId}/reply`, {
+        content: replyText.trim(),
+        images: uploadedImages,
+      });
 
       if (response.success) {
         const newReply = response.reply || response.comment;
@@ -347,6 +433,7 @@ export default function ThreadDetail() {
         }
 
         setReplyText('');
+        setReplyImages([]);
         setReplyingTo(null);
         setExpandedComments((prev) => ({
           ...prev,
@@ -600,6 +687,13 @@ export default function ThreadDetail() {
               <RichText text={comment.content} enableHashtags={false} />
             </div>
 
+            {/* Comment images */}
+            {Array.isArray(comment.images) && comment.images.length > 0 ? (
+              <div onClick={(e) => e.stopPropagation()}>
+                <MediaGrid images={comment.images} className="mt-2" />
+              </div>
+            ) : null}
+
             <div className="mt-3 flex items-center gap-5 text-xs text-muted-foreground">
               <button
                 onClick={() => handleLikeComment(commentId)}
@@ -616,6 +710,7 @@ export default function ThreadDetail() {
                 onClick={() => {
                   setReplyingTo({ commentId, parentCommentId: rootParentId });
                   setReplyText('');
+                  setReplyImages([]);
                 }}
               >
                 <MessageCircle className="mr-1.5 h-4 w-4" />
@@ -650,27 +745,73 @@ export default function ThreadDetail() {
                       className="min-h-[84px] resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                     />
 
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setReplyingTo(null);
-                          setReplyText('');
-                          setSubmitError('');
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="rounded-full px-4"
-                        onClick={() => handleReplySubmit(commentId, replyingTo.parentCommentId)}
-                        disabled={isSubmittingReply || !replyText.trim()}
-                      >
-                        {isSubmittingReply ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
-                        Reply
-                      </Button>
+                    {/* Reply image previews */}
+                    {replyImages.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {replyImages.map((item, index) => (
+                          <div key={item.previewUrl} className="relative group">
+                            <img
+                              src={item.previewUrl}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-24 object-cover rounded-lg"
+                            />
+                            <button
+                              type="button"
+                              className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => removeReplyImage(index)}
+                            >
+                              <X className="h-3.5 w-3.5 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <input
+                          ref={replyFileRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={handleReplyImageSelect}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          onClick={() => replyFileRef.current?.click()}
+                          disabled={isSubmittingReply || replyImages.length >= MAX_COMMENT_IMAGES}
+                          title="Add images"
+                        >
+                          <ImagePlus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setReplyingTo(null);
+                            setReplyText('');
+                            setReplyImages([]);
+                            setSubmitError('');
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="rounded-full px-4"
+                          onClick={() => handleReplySubmit(commentId, replyingTo.parentCommentId)}
+                          disabled={isSubmittingReply || (!replyText.trim() && replyImages.length === 0)}
+                        >
+                          {isSubmittingReply ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
+                          Reply
+                        </Button>
+                      </div>
                     </div>
                     {submitError && (
                       <p className="text-sm text-destructive">{submitError}</p>
@@ -892,19 +1033,7 @@ export default function ThreadDetail() {
 
                 {/* Images for this thread (normal threads, or quote content images if you add later) */}
                 {Array.isArray(thread.images) && thread.images.length > 0 ? (
-                  <div className="mt-3 grid gap-2 grid-cols-1 sm:grid-cols-2">
-                    {thread.images.map((image, index) => (
-                      <img
-                        key={index}
-                        src={image.url || image}
-                        alt={`Thread image ${index + 1}`}
-                        className="w-full rounded-lg object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <MediaGrid images={thread.images} />
                 ) : null}
 
                 {/* Videos */}
@@ -987,7 +1116,7 @@ export default function ThreadDetail() {
                   />
                   <AvatarFallback>{getInitials(commenterIdentity.username)}</AvatarFallback>
                 </Avatar>
-                <div className="flex-1">
+                <div className="flex-1 space-y-2">
                   <MentionTextarea
                     placeholder="Add a comment..."
                     value={commentText}
@@ -1002,13 +1131,56 @@ export default function ThreadDetail() {
                     }}
                     className="min-h-[80px] resize-none !text-left ![direction:ltr] ![unicode-bidi:isolate]"
                   />
+
+                  {/* Comment image previews */}
+                  {commentImages.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {commentImages.map((item, index) => (
+                        <div key={item.previewUrl} className="relative group">
+                          <img
+                            src={item.previewUrl}
+                            alt={`Preview ${index + 1}`}
+                            className="w-full h-28 object-cover rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeCommentImage(index)}
+                          >
+                            <X className="h-3.5 w-3.5 text-white" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
               {submitError && (
                 <p className="text-sm text-destructive px-1">{submitError}</p>
               )}
-              <div className="flex justify-end">
-                <Button type="submit" disabled={isSubmitting || !commentText.trim()}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <input
+                    ref={commentFileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleCommentImageSelect}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground hover:text-primary"
+                    onClick={() => commentFileRef.current?.click()}
+                    disabled={isSubmitting || commentImages.length >= MAX_COMMENT_IMAGES}
+                    title="Add images"
+                  >
+                    <ImagePlus className="h-5 w-5" />
+                  </Button>
+                </div>
+                <Button type="submit" disabled={isSubmitting || (!commentText.trim() && commentImages.length === 0)}>
                   {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Comment
                 </Button>

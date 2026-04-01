@@ -57,11 +57,10 @@ const validate = (req, res, next) => {
 // Validation rules
 const commentValidation = [
   body('content')
+    .optional({ values: 'falsy' })
     .trim()
-    .notEmpty()
-    .withMessage('Comment content is required')
-    .isLength({ min: 1, max: 500 })
-    .withMessage('Comment must be between 1 and 500 characters'),
+    .isLength({ max: 500 })
+    .withMessage('Comment cannot exceed 500 characters'),
   body('isAnonymous').optional().isBoolean().withMessage('isAnonymous must be a boolean'),
 ];
 

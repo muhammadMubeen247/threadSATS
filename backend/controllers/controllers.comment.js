@@ -23,6 +23,7 @@ const formatComment = (comment, viewerPersonaId = null, ownedPersonaIds = [], in
   const formatted = {
     id: comment._id,
     content: comment.isDeleted ? '[deleted]' : comment.content,
+    images: comment.isDeleted ? [] : (comment.images || []),
     likes: comment.likes,
     likesCount: comment.likes.length,
     replyCount: comment.replyCount,
@@ -74,7 +75,7 @@ const getBlockedPersonaIdSetForViewer = async (viewerPersonaId) => {
 exports.createComment = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { content } = req.body;
+    const { content, images: rawImages } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
@@ -98,7 +99,8 @@ exports.createComment = async (req, res) => {
     }
 
     const text = typeof content === 'string' ? content.trim() : '';
-    if (!text) return res.status(400).json({ success: false, message: 'Comment content is required' });
+    const images = Array.isArray(rawImages) ? rawImages.slice(0, 4).filter((img) => img && img.url && img.publicId) : [];
+    if (!text && images.length === 0) return res.status(400).json({ success: false, message: 'Comment content or images are required' });
 
     // ✅ content moderation
     const modResult = await moderate({ text });
@@ -112,6 +114,7 @@ exports.createComment = async (req, res) => {
       threadId,
       authorPersona: ctx.activePersonaId,
       content: text,
+      images,
       parentCommentId: null,
       depth: 0,
       mentions: mentionedPersonaIds,
@@ -169,7 +172,7 @@ exports.createComment = async (req, res) => {
 exports.replyToComment = async (req, res) => {
   try {
     const { commentId } = req.params;
-    const { content } = req.body;
+    const { content, images: rawImages } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return res.status(400).json({ success: false, message: 'Invalid comment ID' });
@@ -196,10 +199,11 @@ exports.replyToComment = async (req, res) => {
     }
 
     const text = typeof content === 'string' ? content.trim() : '';
-    if (!text) return res.status(400).json({ success: false, message: 'Reply content is required' });
+    const images = Array.isArray(rawImages) ? rawImages.slice(0, 4).filter((img) => img && img.url && img.publicId) : [];
+    if (!text && images.length === 0) return res.status(400).json({ success: false, message: 'Reply content or images are required' });
 
     // ✅ content moderation
-    const modResult = await moderate({ text });
+    const modResult = text ? await moderate({ text }) : { hardReject: false, softFlag: false };
     if (modResult.hardReject) {
       return res.status(400).json({ success: false, message: 'Your reply contains content that violates our community guidelines' });
     }
@@ -212,6 +216,7 @@ exports.replyToComment = async (req, res) => {
       threadId: parentComment.threadId,
       parentCommentId: commentId,
       depth: (parentComment.depth || 0) + 1,
+      images,
       mentions: mentionedPersonaIds,
       ...(modResult.softFlag && { flagged: true }),
     });

@@ -13,6 +13,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import ImageLightbox from './ImageLightbox';
+import MediaGrid from './MediaGrid';
 import QuoteRepostModal from './QuoteRepostModal';
 import RichText from '@/components/common/RichText';
 
@@ -36,8 +37,6 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const [isReposted, setIsReposted] = useState(thread.isReposted || false);
   const [repostCount, setRepostCount] = useState(thread.repostCount || 0);
 
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isQuoteOpen, setIsQuoteOpen] = useState(false);
 
   useEffect(() => {
@@ -131,12 +130,6 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         console.error('Failed to delete thread:', error);
       }
     }
-  };
-
-  const handleImageClick = (e, index) => {
-    e.stopPropagation();
-    setLightboxIndex(index);
-    setLightboxOpen(true);
   };
 
   const renderQuotedPreview = () => {
@@ -412,19 +405,8 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
             {/* ✅ Images */}
             {imageUrls.length > 0 ? (
-              <div className="mt-3 grid gap-2 grid-cols-1 sm:grid-cols-2">
-                {imageUrls.map((src, idx) => (
-                  <img
-                    key={src + idx}
-                    src={src}
-                    alt={`Thread image ${idx + 1}`}
-                    className="w-full rounded-lg object-cover"
-                    onClick={(e) => handleImageClick(e, idx)}
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ))}
+              <div onClick={(e) => e.stopPropagation()}>
+                <MediaGrid images={thread.images} />
               </div>
             ) : null}
 
@@ -517,9 +499,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         }}
       />
 
-      {lightboxOpen ? (
-        <ImageLightbox images={imageUrls} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
-      ) : null}
+
     </>
   );
 }

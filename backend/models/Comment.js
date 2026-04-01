@@ -4,7 +4,7 @@ const commentSchema = new mongoose.Schema(
   {
     content: {
       type: String,
-      required: [true, 'Comment content is required'],
+      default: '',
       trim: true,
       maxlength: [500, 'Comment cannot exceed 500 characters'],
     },
@@ -36,6 +36,17 @@ const commentSchema = new mongoose.Schema(
     depth: { type: Number, default: 0 },
 
     isDeleted: { type: Boolean, default: false },
+
+    images: [
+      {
+        url: { type: String, required: true },
+        publicId: { type: String, required: true },
+        thumbnail: { type: String },
+        width: Number,
+        height: Number,
+        format: String,
+      },
+    ],
 
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
 
