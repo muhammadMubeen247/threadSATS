@@ -62,11 +62,10 @@ const commentValidation = [
 // Quote validation
 const quoteValidation = [
   body('content')
+    .optional({ values: 'falsy' })
     .trim()
-    .notEmpty()
-    .withMessage('Quote content is required')
-    .isLength({ min: 1, max: 500 })
-    .withMessage('Quote must be between 1 and 500 characters'),
+    .isLength({ max: 500 })
+    .withMessage('Quote cannot exceed 500 characters'),
 ];
 
 // ✅ ALL routes require login now

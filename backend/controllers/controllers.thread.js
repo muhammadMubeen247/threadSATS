@@ -1015,14 +1015,15 @@ exports.toggleRepost = async (req, res) => {
 exports.createQuoteRepost = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { content } = req.body;
+    const { content, images: rawImages } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return res.status(400).json({ success: false, message: 'Invalid thread ID' });
     }
 
     const text = typeof content === 'string' ? content.trim() : '';
-    if (!text) return res.status(400).json({ success: false, message: 'Quote content is required' });
+    const images = Array.isArray(rawImages) ? rawImages.slice(0, 4).filter((img) => img && img.url && img.publicId) : [];
+    if (!text && images.length === 0) return res.status(400).json({ success: false, message: 'Quote must have content or images' });
 
     const target = await Thread.findOne({ _id: threadId, isDeleted: false }).select('_id type authorPersona');
     if (!target) return res.status(404).json({ success: false, message: 'Thread not found' });
@@ -1038,7 +1039,7 @@ exports.createQuoteRepost = async (req, res) => {
     }
 
     // ✅ content moderation
-    const modResult = await moderate({ text });
+    const modResult = text ? await moderate({ text }) : { hardReject: false, softFlag: false };
     if (modResult.hardReject) {
       return res.status(400).json({ success: false, message: 'Your post contains content that violates our community guidelines' });
     }
@@ -1050,7 +1051,7 @@ exports.createQuoteRepost = async (req, res) => {
       repostOf: threadId,
       authorPersona: ctx.activePersonaId,
       content: text,
-      images: [],
+      images,
       hashtags,
       ...(modResult.softFlag && { flagged: true }),
     });

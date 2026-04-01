@@ -7,8 +7,7 @@ const threadSchema = new mongoose.Schema(
       trim: true,
       maxlength: [500, 'Thread cannot exceed 500 characters'],
       required: function () {
-        const t = this.type || 'thread';
-        return t === 'thread' || t === 'quote';
+        return (this.type || 'thread') === 'thread';
       },
       default: '',
     },
