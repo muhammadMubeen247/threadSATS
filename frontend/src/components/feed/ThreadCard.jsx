@@ -480,7 +480,11 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                     <DropdownMenuItem onClick={handleRepost} className="cursor-pointer">
                       Repost
                     </DropdownMenuItem>
-                  ) : null}
+                  ) : (
+                    <DropdownMenuItem onClick={handleRepost} className="cursor-pointer text-red-500 focus:text-red-500">
+                      Undo repost
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
