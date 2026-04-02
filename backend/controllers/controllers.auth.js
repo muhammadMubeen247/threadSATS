@@ -297,6 +297,9 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Stamp last login time
+    await User.findByIdAndUpdate(user._id, { lastLoginAt: new Date() });
+
     // Generate token
     const token = generateToken(user._id);
 

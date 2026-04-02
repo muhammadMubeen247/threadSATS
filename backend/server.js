@@ -1,12 +1,13 @@
-const express = require('express');
 const dotenv = require('dotenv');
+dotenv.config();
+
+const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
 const http = require('http');
 const { initSocket } = require('./socket');
-
-dotenv.config();
+const { startNotificationDigestJob, runNotificationDigest } = require('./jobs/notificationDigest');
 
 connectDB();
 
@@ -30,6 +31,14 @@ app.use('/api/personas', require('./routes/personas'));
 app.use('/api/dm', require('./routes/dm'));
 app.use('/api/trends', require('./routes/trends'));
 app.use('/api/notifications', require('./routes/notifications'));
+
+// Dev-only: manually trigger the notification digest job
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/admin/trigger-digest', async (req, res) => {
+    await runNotificationDigest();
+    res.json({ success: true, message: 'Digest job ran — check server logs.' });
+  });
+}
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -58,6 +67,7 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 
 initSocket(server);
+startNotificationDigestJob();
 
 const PORT = process.env.PORT || 5000;
 

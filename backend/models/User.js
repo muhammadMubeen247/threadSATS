@@ -95,6 +95,14 @@ const userSchema = new mongoose.Schema(
       default: 'public',
       index: true,
     },
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+    lastNotifEmailSentAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
