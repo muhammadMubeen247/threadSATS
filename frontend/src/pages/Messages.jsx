@@ -4,6 +4,7 @@ import { ArrowLeft, MoreHorizontal, Search, Smile, Check, CheckCheck, X, Inbox, 
 
 import api from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
+import { useNotificationsStore } from '@/store/notificationsStore';
 import { connectSocket } from '@/socket/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Navbar from '@/components/layout/Navbar';
@@ -29,13 +30,14 @@ function ConversationRow({ convo, active, onOpen, myType, myPersonaId }) {
   const last = convo?.lastMessage;
   const isCrossType = myType && other?.type && myType !== other.type;
   const iMine = last?.senderPersonaId && myPersonaId && String(last.senderPersonaId) === String(myPersonaId);
+  const isUnread = !active && !isCrossType && last?.isUnread;
 
   return (
     <button
       onClick={() => onOpen(convo.id, other?.handle, other?.type)}
       className={[
         'w-full text-left rounded-xl px-3 py-2 transition-colors',
-        active ? 'bg-muted/40' : 'hover:bg-muted/25',
+        active ? 'bg-muted/40' : isUnread ? 'bg-sky-500/10 hover:bg-sky-500/15' : 'hover:bg-muted/25',
         isCrossType ? 'opacity-60' : '',
       ].join(' ')}
       type="button"
@@ -49,19 +51,20 @@ function ConversationRow({ convo, active, onOpen, myType, myPersonaId }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-semibold truncate">@{other?.handle}</span>
+              <span className={`truncate ${isUnread ? 'font-bold text-foreground' : 'font-semibold'}`}>@{other?.handle}</span>
               {isCrossType ? (
                 <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
                   {other.type === 'anon' ? 'Anon' : 'Public'}
                 </span>
               ) : null}
             </div>
-            <div className="text-xs text-muted-foreground shrink-0">
-              {formatTime(last?.createdAt)}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-xs text-muted-foreground">{formatTime(last?.createdAt)}</span>
+              {isUnread && <span className="h-2.5 w-2.5 rounded-full bg-sky-500 shrink-0" />}
             </div>
           </div>
 
-          <div className="text-sm text-muted-foreground truncate">
+          <div className={`text-sm truncate ${isUnread ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
             {isCrossType
               ? `Switch to ${other.type} mode to message`
               : last?.sharedThreadAuthor
@@ -228,15 +231,20 @@ function MessageBubble({ mine, text, time, status, onDelete, selectMode, selecte
       ) : null}
 
       <div className="max-w-[72%] group relative">
-        <div
-          className={[
-            'rounded-2xl px-4 py-2 text-sm leading-relaxed',
-            mine ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted/40 rounded-bl-md',
-          ].join(' ')}
-        >
-          {sharedThread && <SharedThreadCard sharedThread={sharedThread} />}
-          {text}
-        </div>
+        {/* Shared thread card — rendered outside the bubble */}
+        {sharedThread && <SharedThreadCard sharedThread={sharedThread} mine={mine} />}
+
+        {/* Only render bubble if there's text */}
+        {text ? (
+          <div
+            className={[
+              'rounded-2xl px-4 py-2 text-sm leading-relaxed',
+              mine ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted/40 rounded-bl-md',
+            ].join(' ')}
+          >
+            {text}
+          </div>
+        ) : null}
 
         {/* Three-dot menu trigger for own messages (not in select mode) */}
         {mine && !selectMode ? (
@@ -1141,6 +1149,7 @@ export default function Messages() {
   const myPersonaId = useMemo(() => personas?.[activeMode]?.id, [personas, activeMode]);
 
   const [conversations, setConversations] = useState([]);
+  const { setUnreadDmCount, decUnreadDmCount } = useNotificationsStore();
 
   // ✅ add this: update conversation preview + move to top
   const bumpConversation = useCallback((cid, msg) => {
@@ -1151,12 +1160,19 @@ export default function Messages() {
       if (idx === -1) return prev;
 
       const existing = prev[idx];
+      // incoming message from someone else = unread
+      const isIncoming = msg && myPersonaId && String(msg.senderPersonaId) !== String(myPersonaId);
 
       const nextLastMessage = msg
         ? {
             _id: msg._id || msg.id,
             text: msg.text,
             createdAt: msg.createdAt || new Date().toISOString(),
+            senderPersonaId: msg.senderPersonaId,
+            sharedThreadAuthor: msg.sharedThread && !msg.sharedThread.isDeleted
+              ? (msg.sharedThread.author?.handle || null)
+              : null,
+            isUnread: isIncoming,
           }
         : existing.lastMessage;
 
@@ -1172,7 +1188,7 @@ export default function Messages() {
       copy.unshift(updated);
       return copy;
     });
-  }, []);
+  }, [myPersonaId]);
 
   // ✅ fetch conversations ONLY when mode changes (no flicker on chat switch)
   useEffect(() => {
@@ -1185,7 +1201,10 @@ export default function Messages() {
       try {
         const res = await api.get('/dm/conversations');
         if (cancelled) return;
-        setConversations(res.conversations || []);
+        const convos = res.conversations || [];
+        setConversations(convos);
+        // Sync badge count with actual unread conversations
+        setUnreadDmCount(convos.filter((c) => c.lastMessage?.isUnread).length);
       } catch {
         if (!cancelled) setConversations([]);
       }
@@ -1215,6 +1234,16 @@ export default function Messages() {
       return;
     }
     if (id) {
+      // Clear unread flag when opening the conversation
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (String(c.id) === String(id) && c.lastMessage?.isUnread) {
+            decUnreadDmCount();
+            return { ...c, lastMessage: { ...c.lastMessage, isUnread: false } };
+          }
+          return c;
+        })
+      );
       navigate(`/messages/${id}`, { replace: true });
       return;
     }

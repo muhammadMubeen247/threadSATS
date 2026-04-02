@@ -2,9 +2,13 @@ import { create } from 'zustand';
 
 export const useNotificationsStore = create((set, get) => ({
   unread: 0,
+  unreadDmCount: 0,
   items: [],
 
   setUnread: (unread) => set({ unread: Math.max(0, Number(unread) || 0) }),
+  setUnreadDmCount: (count) => set({ unreadDmCount: Math.max(0, Number(count) || 0) }),
+  incUnreadDmCount: () => set((s) => ({ unreadDmCount: s.unreadDmCount + 1 })),
+  decUnreadDmCount: () => set((s) => ({ unreadDmCount: Math.max(0, s.unreadDmCount - 1) })),
 
   // Replace entire list (page load)
   setItems: (items) => set({ items: Array.isArray(items) ? items : [] }),

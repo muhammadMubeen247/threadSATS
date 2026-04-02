@@ -11,10 +11,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+import { useNotificationsStore } from '@/store/notificationsStore';
 
 export default function Sidebar({ onCreateThread, onNavigate, className }) {
   const location = useLocation();
   const { user } = useAuthStore();
+  const { unreadDmCount } = useNotificationsStore();
 
   const profilePath = user ? '/me' : '/login';
 
@@ -78,6 +80,11 @@ export default function Sidebar({ onCreateThread, onNavigate, className }) {
               >
                 <Icon className="mr-2 h-5 w-5" />
                 {item.name}
+                {item.name === 'Messages' && unreadDmCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">
+                    {unreadDmCount > 99 ? '99+' : unreadDmCount}
+                  </span>
+                )}
               </Button>
             </Link>
           );

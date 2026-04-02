@@ -37,7 +37,7 @@ exports.listConversations = async (req, res) => {
       .populate('participants', 'handle displayName profilePic type')
       .populate({
         path: 'lastMessage',
-        select: 'text createdAt senderPersonaId sharedThread',
+        select: 'text createdAt senderPersonaId sharedThread seenBy',
         populate: {
           path: 'sharedThread',
           select: 'authorPersona isDeleted',
@@ -72,6 +72,9 @@ exports.listConversations = async (req, res) => {
               sharedThreadAuthor: c.lastMessage.sharedThread && !c.lastMessage.sharedThread.isDeleted
                 ? (c.lastMessage.sharedThread.authorPersona?.handle || null)
                 : null,
+              // unread = last message was sent by someone else and I haven't seen it
+              isUnread: c.lastMessage.senderPersonaId?.toString() !== me &&
+                !(c.lastMessage.seenBy || []).some((id) => id.toString() === me),
             }
           : null,
       };

@@ -2,12 +2,14 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, TrendingUp, MessageCircle, Settings, Plus, Search, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+import { useNotificationsStore } from '@/store/notificationsStore';
 import useScrollDirection from '@/hooks/useScrollDirection';
 
 export default function MobileBottomNav({ onCreateThread }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const { unreadDmCount } = useNotificationsStore();
   const scrollDir = useScrollDirection();
 
   const profilePath = user ? '/me' : '/login';
@@ -68,12 +70,17 @@ export default function MobileBottomNav({ onCreateThread }) {
               >
                 <span
                   className={cn(
-                    'flex items-center justify-center rounded-full',
+                    'relative flex items-center justify-center rounded-full',
                     item.isCreate ? 'h-11 w-11 bg-primary text-primary-foreground shadow' : 'h-9 w-9',
                     active && !item.isCreate && 'bg-accent'
                   )}
                 >
                   <Icon className={cn(item.isCreate ? 'h-5 w-5' : 'h-5 w-5')} />
+                  {item.key === 'messages' && unreadDmCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
+                      {unreadDmCount > 99 ? '99+' : unreadDmCount}
+                    </span>
+                  )}
                 </span>
 
                 <span

@@ -32,7 +32,7 @@ export default function Navbar() {
   const scrollDir = useScrollDirection();
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
-  const { unread, setUnread, upsertFromSocket } = useNotificationsStore();
+  const { unread, setUnread, upsertFromSocket, setUnreadDmCount, incUnreadDmCount } = useNotificationsStore();
 
   // ✅ single socket lifecycle effect:
   useEffect(() => {
@@ -185,9 +185,17 @@ export default function Navbar() {
       } catch {
         // ignore
       }
+      try {
+        const res = await api.get('/dm/conversations');
+        const convos = res?.conversations || [];
+        const dmUnread = convos.filter((c) => c.lastMessage?.isUnread).length;
+        setUnreadDmCount(dmUnread);
+      } catch {
+        // ignore
+      }
     };
     run();
-  }, [user, activeMode, setUnread]);
+  }, [user, activeMode, setUnread, setUnreadDmCount]);
 
   // ✅ realtime listeners
   useEffect(() => {
@@ -204,14 +212,29 @@ export default function Navbar() {
       if (n?._id) upsertFromSocket(n);
     };
 
+    // Increment DM badge when a new message arrives from someone else
+    const onDmNew = (payload) => {
+      const msg = payload?.message;
+      if (!msg) return;
+      const myPersonaId = useAuthStore.getState()?.personas?.[useAuthStore.getState()?.activeMode]?.id;
+      if (myPersonaId && String(msg.senderPersonaId) !== String(myPersonaId)) {
+        // Only increment if we're not currently viewing that conversation
+        const currentPath = window.location.pathname;
+        const inConvo = currentPath === `/messages/${payload.conversationId}`;
+        if (!inConvo) incUnreadDmCount();
+      }
+    };
+
     socket.on('notif:unread', onUnread);
     socket.on('notif:new', onNew);
+    socket.on('dm:new_message', onDmNew);
 
     return () => {
       socket.off('notif:unread', onUnread);
       socket.off('notif:new', onNew);
+      socket.off('dm:new_message', onDmNew);
     };
-  }, [user, setUnread, upsertFromSocket]);
+  }, [user, setUnread, upsertFromSocket, incUnreadDmCount]);
 
   // ✅ Theme state (shared between desktop button and mobile menu item)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
