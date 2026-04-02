@@ -270,6 +270,10 @@ exports.sendMessage = async (req, res) => {
       seenBy: [ctx.activePersonaId],
     });
 
+    if (resolvedSharedThreadId) {
+      await Thread.findByIdAndUpdate(resolvedSharedThreadId, { $inc: { dmShareCount: 1 } });
+    }
+
     await Conversation.findByIdAndUpdate(id, { lastMessage: msg._id }, { new: false });
 
     // ✅ notification (aggregate) for receiver

@@ -2,16 +2,16 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const socketAuth = async (socket, next) => {
-    console.log('Socket Auth Middleware Invoked');
+    // console.log('Socket Auth Middleware Invoked');
   try {
     let token;
 
-    // 1️⃣ From auth payload
+    // From auth payload
     if (socket.handshake.auth?.token) {
       token = socket.handshake.auth.token;
     }
 
-    // 2️⃣ From cookies (if you use cookie auth)
+    // From cookies (if you use cookie auth)
     if (!token && socket.handshake.headers?.cookie) {
       const cookies = socket.handshake.headers.cookie
         .split(';')

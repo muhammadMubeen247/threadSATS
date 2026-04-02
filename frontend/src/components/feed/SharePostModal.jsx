@@ -14,7 +14,7 @@ import {
  * Modal for sharing a thread to one or more DM conversations.
  * Props: open, onClose, threadId
  */
-export default function SharePostModal({ open, onClose, threadId }) {
+export default function SharePostModal({ open, onClose, threadId, onShared }) {
   const [query, setQuery] = useState('');
   const [contacts, setContacts] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -99,6 +99,7 @@ export default function SharePostModal({ open, onClose, threadId }) {
 
     const successes = results.filter((r) => r.status === 'fulfilled');
     if (successes.length) {
+      onShared?.();
       setDone(true);
       setTimeout(() => onClose?.(), 1200);
     }

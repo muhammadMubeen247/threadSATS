@@ -86,6 +86,7 @@ export default function ThreadDetail() {
 
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [dmShareCount, setDmShareCount] = useState(0);
   const [submitError, setSubmitError] = useState('');
 
   const commentFileRef = useRef(null);
@@ -227,6 +228,7 @@ export default function ThreadDetail() {
     try {
       const threadResponse = await api.get(`/threads/${threadId}`);
       setThread(threadResponse.thread);
+      setDmShareCount(threadResponse.thread?.dmShareCount || 0);
 
       const commentsResponse = await api.get(`/threads/${threadId}/comments?page=1&limit=20`);
       setComments(commentsResponse.comments || []);
@@ -1096,6 +1098,7 @@ export default function ThreadDetail() {
                     title="Share"
                   >
                     <Send className="h-5 w-5" />
+                    {dmShareCount > 0 && <span>{dmShareCount}</span>}
                   </button>
                 </div>
 
@@ -1103,6 +1106,7 @@ export default function ThreadDetail() {
                   open={shareOpen}
                   onClose={() => setShareOpen(false)}
                   threadId={thread.id}
+                  onShared={() => setDmShareCount((c) => c + 1)}
                 />
 
                 <QuoteRepostModal

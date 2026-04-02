@@ -40,13 +40,15 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
 
   const [isQuoteOpen, setIsQuoteOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [dmShareCount, setDmShareCount] = useState(thread.dmShareCount || 0);
 
   useEffect(() => {
     setIsLiked(thread.isLiked || false);
     setLikesCount(thread.likesCount || 0);
     setIsReposted(thread.isReposted || false);
     setRepostCount(thread.repostCount || 0);
-  }, [thread.isLiked, thread.likesCount, thread.isReposted, thread.repostCount]);
+    setDmShareCount(thread.dmShareCount || 0);
+  }, [thread.isLiked, thread.likesCount, thread.isReposted, thread.repostCount, thread.dmShareCount]);
 
   const authorHandle = thread?.author?.username || thread?.author?.handle;
   const authorLink = authorHandle ? `/@${authorHandle}` : null;
@@ -497,6 +499,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 title="Share"
               >
                 <Send className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                {dmShareCount > 0 && <span className="text-sm">{dmShareCount}</span>}
               </button>
             </div>
           </div>
@@ -507,6 +510,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
         open={isShareOpen}
         onClose={() => setIsShareOpen(false)}
         threadId={threadId}
+        onShared={() => setDmShareCount((c) => c + 1)}
       />
 
       <QuoteRepostModal

@@ -47,6 +47,7 @@ const formatNormalThread = (thread, viewerPersonaId, ownedPersonaIds = []) => {
 
     commentCount: isDel ? 0 : (thread?.commentCount || 0),
     repostCount: isDel ? 0 : (thread?.repostCount || 0),
+    dmShareCount: isDel ? 0 : (thread?.dmShareCount || 0),
 
     createdAt: thread?.createdAt,
     updatedAt: thread?.updatedAt,
@@ -170,8 +171,9 @@ const scoreEngagement = (doc) => {
   const likes = Number(primary?.likesCount || 0);
   const comments = Number(primary?.commentCount || 0);
   const reposts = Number(primary?.repostCount || 0);
+  const dmShares = Number(primary?.dmShareCount || 0);
 
-  return Math.log1p(likes) * 8 + Math.log1p(comments) * 12 + Math.log1p(reposts) * 14;
+  return Math.log1p(likes) * 8 + Math.log1p(comments) * 12 + Math.log1p(reposts) * 14 + Math.log1p(dmShares) * 10;
 };
 
 const buildViewerFeedFeatures = async (ctx) => {

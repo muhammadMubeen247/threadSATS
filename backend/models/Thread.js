@@ -67,6 +67,8 @@ const threadSchema = new mongoose.Schema(
 
     repostCount: { type: Number, default: 0 },
 
+    dmShareCount: { type: Number, default: 0 },
+
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona', index: true }],
 
     hashtags: [{ type: String, index: true }],
