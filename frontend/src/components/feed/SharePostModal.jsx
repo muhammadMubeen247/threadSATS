@@ -22,6 +22,7 @@ export default function SharePostModal({ open, onClose, threadId, onShared }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [message, setMessage] = useState('');
 
   const debounceRef = useRef(null);
 
@@ -33,6 +34,7 @@ export default function SharePostModal({ open, onClose, threadId, onShared }) {
     setError('');
     setDone(false);
     setSending(false);
+    setMessage('');
     fetchContacts('');
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -85,8 +87,10 @@ export default function SharePostModal({ open, onClose, threadId, onShared }) {
         }
         if (!convoId) throw new Error('Could not resolve conversation');
 
-        // Send the shared thread message
-        await api.post(`/dm/conversations/${convoId}/messages`, { sharedThreadId: threadId });
+        // Send the shared thread message (with optional text)
+        const payload = { sharedThreadId: threadId };
+        if (message.trim()) payload.text = message.trim();
+        await api.post(`/dm/conversations/${convoId}/messages`, payload);
       })
     );
 
@@ -179,17 +183,26 @@ export default function SharePostModal({ open, onClose, threadId, onShared }) {
           {done ? (
             <p className="text-sm text-center text-green-500 font-medium">Sent!</p>
           ) : (
-            <Button
-              onClick={handleSend}
-              disabled={!selected.size || sending}
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white"
-            >
-              {sending
-                ? 'Sending…'
-                : selected.size
-                ? `Send to ${selected.size} ${selected.size === 1 ? 'person' : 'people'}`
-                : 'Select someone'}
-            </Button>
+            <>
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Add a message…"
+                className="w-full rounded-lg border bg-muted/30 py-2 px-3 text-sm outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder:text-muted-foreground"
+              />
+              <Button
+                onClick={handleSend}
+                disabled={!selected.size || sending}
+                className="w-full bg-sky-500 hover:bg-sky-600 text-white"
+              >
+                {sending
+                  ? 'Sending…'
+                  : selected.size
+                  ? `Send to ${selected.size} ${selected.size === 1 ? 'person' : 'people'}`
+                  : 'Select someone'}
+              </Button>
+            </>
           )}
         </div>
       </DialogContent>

@@ -209,6 +209,7 @@ export default function ThreadDetail() {
   }, [thread, activePersona]);
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchThreadAndInitialComments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
