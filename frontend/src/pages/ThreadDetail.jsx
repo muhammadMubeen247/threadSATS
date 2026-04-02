@@ -10,6 +10,7 @@ import {
   Repeat2,
   ImagePlus,
   X,
+  Send,
 } from 'lucide-react';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import Navbar from '@/components/layout/Navbar';
@@ -29,6 +30,7 @@ import { useAuthStore } from '@/store/authStore';
 import api from '@/api/axios';
 import { formatDistanceToNow } from 'date-fns';
 import QuoteRepostModal from '@/components/feed/QuoteRepostModal';
+import SharePostModal from '@/components/feed/SharePostModal';
 import MediaGrid from '@/components/feed/MediaGrid';
 import MentionTextarea from '@/components/common/MentionTextarea';
 import RichText from '@/components/common/RichText';
@@ -83,6 +85,7 @@ export default function ThreadDetail() {
   const [expandedComments, setExpandedComments] = useState({});
 
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
   const commentFileRef = useRef(null);
@@ -1086,7 +1089,21 @@ export default function ThreadDetail() {
                       <DropdownMenuItem onClick={() => setQuoteOpen(true)}>Quote</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  <button
+                    onClick={() => setShareOpen(true)}
+                    className="flex items-center gap-2 hover:text-sky-500 transition-colors"
+                    title="Share"
+                  >
+                    <Send className="h-5 w-5" />
+                  </button>
                 </div>
+
+                <SharePostModal
+                  open={shareOpen}
+                  onClose={() => setShareOpen(false)}
+                  threadId={thread.id}
+                />
 
                 <QuoteRepostModal
                   open={quoteOpen}

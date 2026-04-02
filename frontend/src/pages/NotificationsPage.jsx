@@ -36,7 +36,9 @@ function renderText(n) {
 
   switch (n?.type) {
     case 'dm':
-      return `${actor} sent you a message`;
+      return n?.context?.message?.sharedThreadAuthor
+        ? `${actor} shared a post with you`
+        : `${actor} sent you a message`;
     case 'like':
       return `${actor}${suffix} liked your post`;
     case 'repost':
@@ -326,7 +328,9 @@ export default function NotificationsPage() {
                                 {n.type === 'dm' ? (
                                   <PreviewBox title="Message">
                                     <div className="text-sm whitespace-pre-wrap break-words">
-                                      {n.context?.message?.text || '[message unavailable]'}
+                                      {n.context?.message?.sharedThreadAuthor
+                                        ? `Post by @${n.context.message.sharedThreadAuthor}`
+                                        : (n.context?.message?.text || '[message unavailable]')}
                                     </div>
                                   </PreviewBox>
                                 ) : null}

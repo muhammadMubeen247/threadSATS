@@ -18,7 +18,12 @@ const messageSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: 2000,
-      required: true,
+      default: '',
+    },
+    sharedThread: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Thread',
+      default: null,
     },
     deliveredTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
     seenBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],

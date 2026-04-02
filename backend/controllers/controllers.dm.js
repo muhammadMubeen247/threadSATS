@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Persona = require('../models/Persona');
+const Thread = require('../models/Thread');
 
 const { getViewerContext } = require('../utils/personaContext');
 // ✅ change: also import isPersonaOnline
@@ -36,7 +37,12 @@ exports.listConversations = async (req, res) => {
       .populate('participants', 'handle displayName profilePic type')
       .populate({
         path: 'lastMessage',
-        select: 'text createdAt senderPersonaId',
+        select: 'text createdAt senderPersonaId sharedThread',
+        populate: {
+          path: 'sharedThread',
+          select: 'authorPersona isDeleted',
+          populate: { path: 'authorPersona', select: 'handle displayName type' },
+        },
       })
       .sort({ updatedAt: -1 })
       .lean();
@@ -63,6 +69,9 @@ exports.listConversations = async (req, res) => {
               text: c.lastMessage.text,
               createdAt: c.lastMessage.createdAt,
               senderPersonaId: c.lastMessage.senderPersonaId,
+              sharedThreadAuthor: c.lastMessage.sharedThread && !c.lastMessage.sharedThread.isDeleted
+                ? (c.lastMessage.sharedThread.authorPersona?.handle || null)
+                : null,
             }
           : null,
       };
@@ -155,11 +164,40 @@ exports.getMessages = async (req, res) => {
     const msgs = await Message.find(query)
       .sort({ _id: -1 })
       .limit(limit)
+      .populate({
+        path: 'sharedThread',
+        select: 'content images isDeleted type authorPersona',
+        populate: {
+          path: 'authorPersona',
+          select: 'handle displayName profilePic type',
+        },
+      })
       .lean();
+
+    // Format sharedThread for the client
+    const formatSharedThread = (t) => {
+      if (!t) return null;
+      if (t.isDeleted) return { id: t._id, isDeleted: true };
+      return {
+        id: t._id,
+        content: t.content || '',
+        images: t.images || [],
+        type: t.type,
+        isDeleted: false,
+        author: t.authorPersona
+          ? {
+              handle: t.authorPersona.handle,
+              displayName: t.authorPersona.displayName || t.authorPersona.handle,
+              profilePic: t.authorPersona.profilePic || '',
+              type: t.authorPersona.type,
+            }
+          : null,
+      };
+    };
 
     return res.status(200).json({
       success: true,
-      messages: msgs.reverse(),
+      messages: msgs.reverse().map((m) => ({ ...m, sharedThread: formatSharedThread(m.sharedThread) })),
       nextBefore: msgs.length ? msgs[msgs.length - 1]._id : null,
     });
   } catch (e) {
@@ -172,7 +210,13 @@ exports.sendMessage = async (req, res) => {
   try {
     const { id } = req.params;
     const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
-    if (!text) return res.status(400).json({ success: false, message: 'text is required' });
+    const { sharedThreadId } = req.body;
+
+    // Must have text or a shared thread
+    if (!text && !sharedThreadId) return res.status(400).json({ success: false, message: 'text or sharedThreadId is required' });
+    if (sharedThreadId && !mongoose.Types.ObjectId.isValid(sharedThreadId)) {
+      return res.status(400).json({ success: false, message: 'Invalid sharedThreadId' });
+    }
     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ success: false, message: 'Invalid conversation id' });
 
     const ctx = await getViewerContext(req.user.id);
@@ -202,6 +246,14 @@ exports.sendMessage = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot message this persona' });
     }
 
+    // Validate shared thread exists
+    let resolvedSharedThreadId = null;
+    if (sharedThreadId) {
+      const threadExists = await Thread.findOne({ _id: sharedThreadId, isDeleted: false }).select('_id').lean();
+      if (!threadExists) return res.status(404).json({ success: false, message: 'Thread not found' });
+      resolvedSharedThreadId = sharedThreadId;
+    }
+
     // ✅ NEW: mark delivered immediately if recipient is online (socket connected)
     const deliveredTo = [ctx.activePersonaId];
     if (isPersonaOnline(otherId)) deliveredTo.push(otherId);
@@ -210,13 +262,14 @@ exports.sendMessage = async (req, res) => {
       conversationId: id,
       senderPersonaId: ctx.activePersonaId,
       text,
+      sharedThread: resolvedSharedThreadId,
       deliveredTo,
       seenBy: [ctx.activePersonaId],
     });
 
     await Conversation.findByIdAndUpdate(id, { lastMessage: msg._id }, { new: false });
 
-    // ✅ NEW: notification (aggregate) for receiver
+    // ✅ notification (aggregate) for receiver
     upsertNotification({
       recipientPersonaId: otherId,
       actorPersonaId: ctx.activePersonaId,
@@ -227,7 +280,35 @@ exports.sendMessage = async (req, res) => {
       secondaryEntityId: msg._id,
     }).catch((e) => console.error('notif upsert failed (dm):', e));
 
-    // ✅ emit realtime event (include receipts)
+    // Populate sharedThread for real-time socket payload
+    let sharedThreadData = null;
+    if (resolvedSharedThreadId) {
+      const t = await Thread.findById(resolvedSharedThreadId)
+        .select('content images isDeleted type authorPersona')
+        .populate('authorPersona', 'handle displayName profilePic type')
+        .lean();
+      if (t) {
+        sharedThreadData = t.isDeleted
+          ? { id: t._id, isDeleted: true }
+          : {
+              id: t._id,
+              content: t.content || '',
+              images: t.images || [],
+              type: t.type,
+              isDeleted: false,
+              author: t.authorPersona
+                ? {
+                    handle: t.authorPersona.handle,
+                    displayName: t.authorPersona.displayName || t.authorPersona.handle,
+                    profilePic: t.authorPersona.profilePic || '',
+                    type: t.authorPersona.type,
+                  }
+                : null,
+            };
+      }
+    }
+
+    // ✅ emit realtime event (include receipts + sharedThread)
     const payload = {
       conversationId: id,
       message: {
@@ -235,6 +316,7 @@ exports.sendMessage = async (req, res) => {
         conversationId: msg.conversationId,
         senderPersonaId: msg.senderPersonaId,
         text: msg.text,
+        sharedThread: sharedThreadData,
         deliveredTo: msg.deliveredTo || [],
         seenBy: msg.seenBy || [],
         createdAt: msg.createdAt,
@@ -251,7 +333,7 @@ exports.sendMessage = async (req, res) => {
       // ignore
     }
 
-    return res.status(201).json({ success: true, message: msg });
+    return res.status(201).json({ success: true, message: { ...msg.toObject(), sharedThread: sharedThreadData } });
   } catch (e) {
     console.error('sendMessage error:', e);
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -556,6 +638,107 @@ exports.deleteMessage = async (req, res) => {
     });
   } catch (e) {
     console.error('deleteMessage error:', e);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// GET /dm/share/contacts?q=...&limit=...
+exports.getShareContacts = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const ctx = await getViewerContext(req.user.id);
+    if (!ctx?.activePersonaId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 30, 1), 50);
+
+    const mePersona = await Persona.findById(ctx.activePersonaId)
+      .select('type following followers blocked')
+      .lean();
+    if (!mePersona) return res.status(404).json({ success: false, message: 'Persona not found' });
+
+    const me = ctx.activePersonaId.toString();
+    const blockedSet = new Set((mePersona.blocked || []).map((id) => id.toString()));
+    const followingSet = new Set((mePersona.following || []).map((id) => id.toString()));
+    const followersSet = new Set((mePersona.followers || []).map((id) => id.toString()));
+
+    // Get existing conversation contacts
+    const conversations = await Conversation.find({ participants: ctx.activePersonaId })
+      .select('participants updatedAt')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const convoMap = new Map();
+    for (const c of conversations) {
+      const otherId = (c.participants || []).find((p) => p?.toString() !== me);
+      if (otherId) convoMap.set(otherId.toString(), c._id);
+    }
+
+    // Build persona query — only same type as active persona
+    const query = {
+      _id: { $ne: ctx.activePersonaId },
+      isConfigured: { $ne: false },
+      type: mePersona.type,
+    };
+
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), 'i');
+      query.$or = [
+        { handle: { $regex: rx } },
+        { displayName: { $regex: rx } },
+        { rollNumber: { $regex: rx } },
+      ];
+    } else {
+      // No query: only show follows/followers/existing contacts
+      const interactedIds = [
+        ...new Set([
+          ...Array.from(followingSet),
+          ...Array.from(followersSet),
+          ...Array.from(convoMap.keys()),
+        ]),
+      ].map((id) => {
+        try { return new (require('mongoose').Types.ObjectId)(id); } catch { return null; }
+      }).filter(Boolean);
+
+      if (!interactedIds.length) return res.status(200).json({ success: true, contacts: [] });
+      query._id = { $ne: ctx.activePersonaId, $in: interactedIds };
+    }
+
+    const personas = await Persona.find(query)
+      .select('_id handle displayName profilePic type rollNumber')
+      .limit(200)
+      .lean();
+
+    const scored = [];
+    for (const p of personas) {
+      const pid = p._id.toString();
+      if (pid === me) continue;
+      if (blockedSet.has(pid)) continue;
+
+      let priority = 0;
+      if (convoMap.has(pid)) priority += 4;
+      if (followingSet.has(pid) && followersSet.has(pid)) priority += 3;
+      else if (followingSet.has(pid)) priority += 2;
+      else if (followersSet.has(pid)) priority += 1;
+
+      scored.push({ persona: p, conversationId: convoMap.get(pid) || null, priority });
+    }
+
+    scored.sort((a, b) => b.priority - a.priority);
+
+    const contacts = scored.slice(0, limit).map((s) => ({
+      conversationId: s.conversationId,
+      persona: {
+        id: s.persona._id,
+        handle: s.persona.handle,
+        displayName: s.persona.displayName || s.persona.handle,
+        profilePic: s.persona.profilePic || '',
+        type: s.persona.type,
+      },
+    }));
+
+    return res.status(200).json({ success: true, contacts });
+  } catch (e) {
+    console.error('getShareContacts error:', e);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };

@@ -10,6 +10,7 @@ const {
   deleteMessage,
   searchContacts,
   searchMessages,
+  getShareContacts,
 } = require('../controllers/controllers.dm');
 
 router.use(protect);
@@ -28,5 +29,7 @@ router.get('/search/contacts', searchContacts);
 router.get('/search/messages', searchMessages);
 
 router.delete('/messages/:messageId', deleteMessage);
+
+router.get('/share/contacts', getShareContacts);
 
 module.exports = router;

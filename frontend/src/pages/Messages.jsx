@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { connectSocket } from '@/socket/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Navbar from '@/components/layout/Navbar';
+import SharedThreadCard from '@/components/feed/SharedThreadCard';
 
 // ✅ emoji picker web component (React 19 friendly)
 import 'emoji-picker-element';
@@ -23,10 +24,11 @@ function containsId(arr, id) {
   return Array.isArray(arr) && arr.some((x) => String(x) === s);
 }
 
-function ConversationRow({ convo, active, onOpen, myType }) {
+function ConversationRow({ convo, active, onOpen, myType, myPersonaId }) {
   const other = convo?.other;
   const last = convo?.lastMessage;
   const isCrossType = myType && other?.type && myType !== other.type;
+  const iMine = last?.senderPersonaId && myPersonaId && String(last.senderPersonaId) === String(myPersonaId);
 
   return (
     <button
@@ -60,7 +62,11 @@ function ConversationRow({ convo, active, onOpen, myType }) {
           </div>
 
           <div className="text-sm text-muted-foreground truncate">
-            {isCrossType ? `Switch to ${other.type} mode to message` : (last?.text || 'No messages yet')}
+            {isCrossType
+              ? `Switch to ${other.type} mode to message`
+              : last?.sharedThreadAuthor
+              ? `${iMine ? 'You sent' : 'Sent'} a post by @${last.sharedThreadAuthor}`
+              : (last?.text || 'No messages yet')}
           </div>
         </div>
       </div>
@@ -68,7 +74,7 @@ function ConversationRow({ convo, active, onOpen, myType }) {
   );
 }
 
-function ConversationList({ conversations, activeId, onOpen, onBack, activeMode }) {
+function ConversationList({ conversations, activeId, onOpen, onBack, activeMode, myPersonaId }) {
   const [q, setQ] = useState('');
 
   // ✅ remote contact search
@@ -177,7 +183,7 @@ function ConversationList({ conversations, activeId, onOpen, onBack, activeMode 
       <div className="flex-1 px-2 pb-3 overflow-y-auto">
         <div className="space-y-1">
           {list.map((c) => (
-            <ConversationRow key={c.id || `h:${c._handle}`} convo={c} active={c.id === activeId} onOpen={onOpen} myType={activeMode === 'anon' ? 'anon' : 'public'} />
+            <ConversationRow key={c.id || `h:${c._handle}`} convo={c} active={c.id === activeId} onOpen={onOpen} myType={activeMode === 'anon' ? 'anon' : 'public'} myPersonaId={myPersonaId} />
           ))}
         </div>
 
@@ -191,7 +197,7 @@ function ConversationList({ conversations, activeId, onOpen, onBack, activeMode 
   );
 }
 
-function MessageBubble({ mine, text, time, status, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
+function MessageBubble({ mine, text, time, status, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode, sharedThread }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -228,6 +234,7 @@ function MessageBubble({ mine, text, time, status, onDelete, selectMode, selecte
             mine ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted/40 rounded-bl-md',
           ].join(' ')}
         >
+          {sharedThread && <SharedThreadCard sharedThread={sharedThread} />}
           {text}
         </div>
 
@@ -1025,6 +1032,7 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
                     selected={selectedIds.has(id)}
                     onToggleSelect={() => toggleSelect(id)}
                     onEnterSelectMode={() => enterSelectMode(id)}
+                    sharedThread={m.sharedThread || null}
                   />
                 </div>
               );
@@ -1257,6 +1265,7 @@ export default function Messages() {
             onOpen={openConversation}
             onBack={goBack}
             activeMode={activeMode}
+            myPersonaId={myPersonaId}
           />
         </div>
 

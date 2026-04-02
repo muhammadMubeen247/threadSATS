@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Repeat2, MoreVertical, Trash2 } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, MoreVertical, Trash2, Send } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,7 @@ import api from '@/api/axios';
 import ImageLightbox from './ImageLightbox';
 import MediaGrid from './MediaGrid';
 import QuoteRepostModal from './QuoteRepostModal';
+import SharePostModal from './SharePostModal';
 import RichText from '@/components/common/RichText';
 
 export default function ThreadCard({ thread, onDelete, onUpdate }) {
@@ -38,6 +39,7 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
   const [repostCount, setRepostCount] = useState(thread.repostCount || 0);
 
   const [isQuoteOpen, setIsQuoteOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
 
   useEffect(() => {
     setIsLiked(thread.isLiked || false);
@@ -446,6 +448,14 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 <span className="text-sm">{thread?.commentCount || 0}</span>
               </button>
 
+              {/* <button
+                onClick={(e) => { e.stopPropagation(); setIsShareOpen(true); }}
+                className="flex items-center gap-2 hover:text-sky-500 transition-colors group"
+                title="Share"
+              >
+                <Send className="h-5 w-5 group-hover:scale-110 transition-transform" />
+              </button> */}
+
               {thread?.type === 'repost' ? (
                 <div className="flex items-center gap-2 text-green-500">
                   <Repeat2 className="h-5 w-5" />
@@ -481,10 +491,23 @@ export default function ThreadCard({ thread, onDelete, onUpdate }) {
                 </DropdownMenuContent>
               </DropdownMenu>
               )}
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsShareOpen(true); }}
+                className="flex items-center gap-2 hover:text-sky-500 transition-colors group"
+                title="Share"
+              >
+                <Send className="h-5 w-5 group-hover:scale-110 transition-transform" />
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      <SharePostModal
+        open={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        threadId={threadId}
+      />
 
       <QuoteRepostModal
         open={isQuoteOpen}

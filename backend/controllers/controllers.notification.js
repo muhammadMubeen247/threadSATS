@@ -124,7 +124,14 @@ exports.getNotifications = async (req, res) => {
     const threadMap = new Map(threadDocs.map((t) => [String(t._id), t]));
 
     const messageDocs = messageIds.size
-      ? await Message.find({ _id: { $in: [...messageIds] } }).select('_id text createdAt conversationId').lean()
+      ? await Message.find({ _id: { $in: [...messageIds] } })
+          .select('_id text createdAt conversationId sharedThread')
+          .populate({
+            path: 'sharedThread',
+            select: 'isDeleted authorPersona',
+            populate: { path: 'authorPersona', select: 'handle displayName type' },
+          })
+          .lean()
       : [];
     const messageMap = new Map(messageDocs.map((m) => [String(m._id), m]));
 
@@ -133,9 +140,17 @@ exports.getNotifications = async (req, res) => {
 
       if (n.type === 'dm' && n.entityType === 'conversation') {
         const msg = n.secondaryEntityId ? messageMap.get(String(n.secondaryEntityId)) : null;
+        const sharedThread = msg?.sharedThread && !msg.sharedThread.isDeleted ? msg.sharedThread : null;
         out.context = {
           conversationId: n.entityId,
-          message: msg ? { id: msg._id, text: msg.text || '', createdAt: msg.createdAt } : null,
+          message: msg
+            ? {
+                id: msg._id,
+                text: msg.text || '',
+                createdAt: msg.createdAt,
+                sharedThreadAuthor: sharedThread?.authorPersona?.handle || null,
+              }
+            : null,
         };
         return out;
       }
