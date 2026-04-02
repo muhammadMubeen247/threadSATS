@@ -300,6 +300,7 @@ function MessageBubble({ mine, text, time, status, onDelete, selectMode, selecte
 }
 
 function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrReceived, onBackToList }) {
+  const navigate = useNavigate();
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -889,6 +890,11 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
               <ArrowLeft className="h-5 w-5 text-muted-foreground" />
             </button>
 
+            <button
+              type="button"
+              onClick={() => conversationMeta?.other?.handle && navigate(`/@${conversationMeta.other.handle}`)}
+              className="flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
+            >
             <Avatar className="h-10 w-10">
               <AvatarImage
                 src={conversationMeta?.other?.profilePic || ''}
@@ -905,6 +911,7 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
                 {conversationMeta?.other?.displayName || ''}
               </div>
             </div>
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
