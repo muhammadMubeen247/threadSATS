@@ -1088,7 +1088,11 @@ export default function ThreadDetail() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={handleToggleRepost}>Repost</DropdownMenuItem>
+                      {!thread.isReposted ? (
+                        <DropdownMenuItem onClick={handleToggleRepost}>Repost</DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={handleToggleRepost} className="text-red-500 focus:text-red-500">Undo repost</DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => setQuoteOpen(true)}>Quote</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
