@@ -97,8 +97,6 @@ export default function Settings() {
     }
   };
 
-  const showBackToDefault = activeKey !== null;
-
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -110,8 +108,8 @@ export default function Settings() {
             <Sidebar />
           </div>
 
-          {/* Middle: Settings categories */}
-          <div className="space-y-4">
+          {/* Middle: Settings categories — hidden on mobile when a panel is active */}
+          <div className={cn('space-y-4', activeKey && 'hidden lg:block')}>
             <div>
               <h1 className="text-2xl font-bold">Settings</h1>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -160,31 +158,16 @@ export default function Settings() {
                 </CardContent>
               </Card>
             ))}
-
-            {/* Mobile helper */}
-            <div className="lg:hidden space-y-2">
-              <Button variant="outline" className="w-full" onClick={() => window.history.back()}>
-                Back
-              </Button>
-
-              {activeKey ? (
-                <Button variant="ghost" className="w-full" onClick={() => setActiveKey(null)}>
-                  Clear selection
-                </Button>
-              ) : null}
-            </div>
           </div>
 
-          {/* Right: Active panel */}
-          <div className="min-w-0 space-y-3">
-            {showBackToDefault ? (
-              <div className="flex items-center justify-between">
-                <Button variant="ghost" onClick={() => setActiveKey(null)}>
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Go back
-                </Button>
-              </div>
-            ) : null}
+          {/* Right: Active panel — on mobile takes full width and shows back button */}
+          <div className={cn('min-w-0 space-y-3', !activeKey && 'hidden lg:block')}>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setActiveKey(null)}>
+                <ArrowLeft className="mr-1 h-4 w-4" />
+                Back
+              </Button>
+            </div>
 
             <ActivePane />
           </div>
