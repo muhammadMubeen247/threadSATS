@@ -27,10 +27,24 @@ import { useNotificationsStore } from '@/store/notificationsStore';
 // ✅ add
 import personasIcon from '@/assets/new_personas_logo.png';
 import personasIconFull from '@/assets/new_personas_logo_full.png';
+import personasIconWhite from '@/assets/new_personas_logo_white.png';
+import personasIconWhiteFull from '@/assets/new_personas_logo_white_full.png';
 
 export default function Navbar() {
   const navigate = useNavigate();
   const scrollDir = useScrollDirection();
+
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains('dark')
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, { attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
 
   const { user, logout, personas, activeMode, setPersonas, setActiveMode } = useAuthStore();
   const { unread, setUnread, upsertFromSocket, setUnreadDmCount, incUnreadDmCount } = useNotificationsStore();
@@ -263,17 +277,17 @@ export default function Navbar() {
         {/* Logo: centered on mobile, left-aligned on desktop */}
         <div className="absolute left-1/2 -translate-x-1/2 lg:static lg:translate-x-0 flex items-center gap-2">
           <Link to="/home" className="flex items-center">
-            {/* Mobile: icon only */}
+            {/* Mobile icon */}
             <img
-              src={personasIcon}
+              src={isDark ? personasIconWhite : personasIcon}
               alt="Personas"
-              className="h-16 w-16 rounded-lg object-contain lg:hidden"
+              className="h-16 w-16 object-contain lg:hidden"
             />
-            {/* Desktop: full wordmark */}
+            {/* Desktop full wordmark */}
             <img
-              src={personasIconFull}
+              src={isDark ? personasIconWhiteFull : personasIconFull}
               alt="Personas"
-              className="hidden lg:block h-16 object-contain"
+              className="hidden lg:block h-12 object-contain"
             />
           </Link>
         </div>
