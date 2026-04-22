@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 
 import MobileBottomNav from '@/components/layout/MobileBottomNav';
 import CreateThreadModal from '@/components/feed/CreateThreadModal';
 
 export default function ProtectedLayout() {
+  const location = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Suppress bottom padding when a DM conversation is open — chat is full-screen
+  const inChat = /^\/messages\/.+/.test(location.pathname);
 
   // ✅ allow any component to open the modal by dispatching:
   // window.dispatchEvent(new Event('thread:create'))
@@ -18,7 +22,7 @@ export default function ProtectedLayout() {
   return (
     <>
       {/* Page content gets bottom padding so it doesn't go under the nav */}
-      <div className="min-h-screen bg-background pb-20 lg:pb-0">
+      <div className={`min-h-screen bg-background lg:pb-0 ${inChat ? '' : 'pb-20'}`}>
         <Outlet />
       </div>
 

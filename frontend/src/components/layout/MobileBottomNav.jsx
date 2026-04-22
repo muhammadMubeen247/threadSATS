@@ -12,6 +12,10 @@ export default function MobileBottomNav({ onCreateThread }) {
   const { unreadDmCount } = useNotificationsStore();
   const scrollDir = useScrollDirection();
 
+  // Hide when a DM conversation is open — chat is full-screen on mobile
+  const inChat = /^\/messages\/[^/]+/.test(location.pathname);
+  if (inChat) return null;
+
   const profilePath = user ? '/me' : '/login';
 
   const isActive = (key, path) => {

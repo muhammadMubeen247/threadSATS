@@ -270,7 +270,7 @@ export default function Navbar() {
   );
 
   return (
-    <nav className={`sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-transform duration-300 ${scrollDir === 'down' ? '-translate-y-full' : 'translate-y-0'} lg:translate-y-0`}>
+    <nav className={`sticky top-0 z-50 w-full border-b bg-background transition-transform duration-300 ${scrollDir === 'down' ? '-translate-y-full' : 'translate-y-0'} lg:translate-y-0`}>
       <div className="w-full relative flex h-16 items-center justify-between px-4">
         {/* Spacer on mobile to balance justify-between (logo is absolute) */}
         <div className="w-9 lg:hidden" />

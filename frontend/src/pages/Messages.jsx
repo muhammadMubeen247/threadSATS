@@ -145,8 +145,8 @@ function ConversationList({ conversations, activeId, onOpen, onBack, activeMode,
   return (
     <div
       className={[
-        // ✅ account for Navbar (64px) + MobileBottomNav (80px)
-        'h-[calc(100dvh-64px-80px)] lg:h-[calc(100dvh-64px)]',
+        // ✅ account for Navbar (64px) only — bottom nav offset handled by page wrapper pb-20
+        'h-[calc(100dvh-64px)] lg:h-[calc(100dvh-64px)]',
         'border-r border-border bg-card/40',
         'flex flex-col',
       ].join(' ')}
@@ -842,8 +842,8 @@ function ChatWindow({ conversationId, myPersonaId, conversationMeta, onSentOrRec
   return (
     <div
       className={[
-        // ✅ account for Navbar (64px) + MobileBottomNav (80px)
-        'h-[calc(100dvh-64px-80px)] lg:h-[calc(100dvh-60px)]',
+        // ✅ account for Navbar (64px) only — bottom nav offset handled by page wrapper pb-20
+        'h-[calc(100dvh-64px)] lg:h-[calc(100dvh-60px)]',
         'flex flex-col bg-background',
       ].join(' ')}
     >
