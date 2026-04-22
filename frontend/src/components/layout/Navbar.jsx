@@ -25,7 +25,8 @@ import { connectSocket, disconnectSocket, getSocket } from '@/socket/client';
 import { useNotificationsStore } from '@/store/notificationsStore';
 
 // ✅ add
-import personasIcon from '@/assets/personas_icon.png';
+import personasIcon from '@/assets/new_personas_logo.png';
+import personasIconFull from '@/assets/new_personas_logo_full.png';
 
 export default function Navbar() {
   const navigate = useNavigate();
@@ -261,13 +262,19 @@ export default function Navbar() {
         <div className="w-9 lg:hidden" />
         {/* Logo: centered on mobile, left-aligned on desktop */}
         <div className="absolute left-1/2 -translate-x-1/2 lg:static lg:translate-x-0 flex items-center gap-2">
-          <Link to="/home" className="flex items-center space-x-2">
+          <Link to="/home" className="flex items-center">
+            {/* Mobile: icon only */}
             <img
               src={personasIcon}
               alt="Personas"
-              className="h-16 w-16 rounded-lg object-contain"
+              className="h-16 w-16 rounded-lg object-contain lg:hidden"
             />
-            <span className="hidden font-bold text-lg lg:inline-block">Personas</span>
+            {/* Desktop: full wordmark */}
+            <img
+              src={personasIconFull}
+              alt="Personas"
+              className="hidden lg:block h-16 object-contain"
+            />
           </Link>
         </div>
 
