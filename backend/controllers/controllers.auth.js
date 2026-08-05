@@ -15,9 +15,8 @@ const DEGREE_TO_DEPARTMENT = {
   bcs: 'Computer Science',
   bse: 'Software Engineering',
   bit: 'Information Technology',
-  // add more mappings if you have them:
-  // bba: 'Business Administration',
-  // bee: 'Electrical Engineering',
+  baf: 'Accounting and Finance',
+  bar: 'Architecture',
 };
 
 function parseComsatsEmail(email = '') {
@@ -28,7 +27,7 @@ function parseComsatsEmail(email = '') {
   const parts = (local || '').split('-');
 
   if (parts.length !== 3) {
-    throw new Error('Email must look like fa22-bcs-112@cuilahore.edu.pk');
+    throw new Error('Email must look like fa22-xxx-xxx@cuilahore.edu.pk');
   }
 
   const [sessionYearRaw, degreeRaw, idRaw] = parts;

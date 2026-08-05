@@ -48,7 +48,7 @@ const formatComment = (comment, viewerPersonaId = null, ownedPersonaIds = [], in
   formatted.isOwner =
     !!viewerPersonaId && comment.authorPersona?._id?.toString() === viewerPersonaId.toString();
 
-  if (includePreview && previewReplies.length > 0) {
+  if (includePreview && previewReplises.length > 0) {
     formatted.previewReplies = previewReplies.map((reply) =>
       formatComment(reply, viewerPersonaId, ownedPersonaIds, false)
     );
