@@ -14,12 +14,23 @@ on:
             - "!backend/garbage/*.txt"    
 
     workflow_dispatch: 
+ 
+env:
+    WORKFLOW_VAR: workflow        
 
 jobs:
     say-hello-world:
         runs-on: ubuntu-22.04
+        env:
+            HELLO_WORLD_VAR: hello_world
         steps:
-            - run: echo "Hello World!"
+          - name: say-hello-world-step-1
+            env:
+                HELLO_WORLD_STEP_ONE_VAR: hello_world_step_one_var
+            run: |
+                echo "WORKFLOW_VAR: $WORKFLOW_VAR"
+                echo "HELLO_WORLD_VAR: $HELLO_WORLD_VAR"
+                echo "HELLO_WORLD_STEP_ONE_VAR: $HELLO_WORLD_STEP_ONE_VAR"
     say-something-else:
         runs-on: ubuntu-22.04
         steps:
