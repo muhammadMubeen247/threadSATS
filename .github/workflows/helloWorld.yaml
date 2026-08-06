@@ -19,5 +19,5 @@ jobs:
             - say-hello-world
             - say-something-else
         steps:
-            - run: print('I depend on job 1 and job 2')
+            - run: echo "I depend on job 1 and job 2"
 
