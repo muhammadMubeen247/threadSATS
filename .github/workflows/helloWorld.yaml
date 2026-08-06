@@ -1,0 +1,11 @@
+name: HelloWorld
+
+on: 
+    workflow_dispatch:
+
+jobs:
+    say-hello-inline-bash:
+        runs-on: ubuntu-22.04
+        steps:
+            - run: echo "Hello World!"
+

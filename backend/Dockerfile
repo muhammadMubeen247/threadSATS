@@ -6,7 +6,7 @@ COPY package*.json ./
 
 RUN npm ci --only=production
 
-COPY --chown=nonroot:nonroot . .
+COPY --chown=node:node . .
 
 EXPOSE 3000
 
