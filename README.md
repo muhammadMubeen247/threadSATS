@@ -70,6 +70,12 @@ It's designed to feel like a mix of **Instagram + Reddit + Twitter/X**, but made
 - Events & Ads section for societies and students
 - Improved personalization and batch-level features
 
+### How to Run through Docker
+
+docker compose up -d
+or 
+docker-compose up -d
+
 ### How to Run Locally
 
 ```bash
