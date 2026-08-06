@@ -19,12 +19,12 @@ jobs:
               run: |
                 mkdir -p cache
                 date > cache/timestamp.txt
-            - name: fillCache
-              if: steps.cache-restore.outputs.cache-hit != 'true'
-              uses: actions/cache@v6
-              with:
-                path: cache
-                key: cache-v1
+            # - name: fillCache
+            #   if: steps.cache-restore.outputs.cache-hit != 'true'
+            #   uses: actions/cache@v6
+            #   with:
+            #     path: cache
+            #     key: cache-v1
             - name: verifyCache
               run: |
                 echo "cache hit? -> ${{ steps.cache-restore.outputs.cache-hit }}"
