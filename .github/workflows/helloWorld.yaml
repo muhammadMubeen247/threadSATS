@@ -1,6 +1,9 @@
 name: MubeenTesting
 
 on:
+    push:
+        branches:
+            - "main"
     workflow_dispatch: 
 
 jobs:
