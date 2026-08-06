@@ -1,0 +1,31 @@
+name: cache
+
+on:
+    workflow_dispatch: 
+
+jobs:
+    cache-stuff:
+        name: CachingStuff
+        runs-on: ubuntu-22.04
+        steps:
+            - name: Restore Cache
+              id: cache-restore
+              uses: actions/cache@v6
+              with:
+                path: cache
+                key: cache-v1
+            - name: populateCache
+              if: steps.cache-restore.outputs.cache-hit != 'true'
+              run: |
+                mkdir -p cache
+                date > cache/timestamp.txt
+            - name: fillCache
+              if: steps.cache-restore.outputs.cache-hit != 'true'
+              uses: actions/cache@v6
+              with:
+                path: cache
+                key: cache-v1
+            - name: verifyCache
+              run: |
+                echo "cache hit? -> ${{ steps.cache-restore.outputs.cache-hit }}"
+                cat cache/timestamp.txt    
