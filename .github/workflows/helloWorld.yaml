@@ -13,5 +13,11 @@ jobs:
         steps:
             - run: print('I hate leetcode')
               shell: python
-    
+    third-job:
+        runs-on: ubuntu-22.04
+        needs:
+            - say-hello-world
+            - say-something-else
+        steps:
+            - run: print('I depend on job 1 and job 2')
 
