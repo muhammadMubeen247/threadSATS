@@ -32,4 +32,14 @@ jobs:
             - say-something-else
         steps:
             - run: echo "I depend on job 1 and job 2"
+    fourth-job:
+        runs-on: ubuntu-22.04
+        needs:
+            - say-something-else
+            - third-job
+        steps:
+            - run: |
+                print("This is fourth job")
+                print("Next line of fourth job")
+              shell: python
 
