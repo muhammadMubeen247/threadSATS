@@ -1,11 +1,17 @@
-name: HelloWorld
+name: MubeenTesting
 
-on: 
-    workflow_dispatch:
+on:
+    workflow_dispatch: 
 
 jobs:
-    say-hello-inline-bash:
+    say-hello-world:
         runs-on: ubuntu-22.04
         steps:
             - run: echo "Hello World!"
+    say-something-else:
+        runs-on: ubuntu-22.04
+        steps:
+            - run: print('I hate leetcode')
+              shell: python
+    
 
