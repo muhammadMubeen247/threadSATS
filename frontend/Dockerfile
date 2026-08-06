@@ -1,13 +1,19 @@
-FROM node:22-alpine
+FROM node:22-alpine AS build
 
 WORKDIR /usr/src/app
 
 COPY package*.json ./
 
-RUN mount=type=cache,target=usr/src/app/.npm \
+RUN --mount=type=cache,target=usr/src/app/.npm \
     npm set cache /usr/src/app/.npm && \
     npm ci
 
-COPY --chown=nonroot:nonroot . .
+COPY --chown=node:node . .
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+RUN npm run build
+
+FROM nginx:alpine
+
+COPY --from=build /usr/src/app/dist /usr/share/nginx/html
+
+CMD ["nginx", "-g", "daemon off;"]
