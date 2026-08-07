@@ -1,7 +1,7 @@
 name: compositeAction
 
 on:
-    workflow_dispatch
+    workflow_dispatch:
 
 jobs:
     greet:
@@ -14,7 +14,7 @@ jobs:
                 who-to-greet:
                     "Mubeen"
             - env: 
-                RANDOM_NUMBER: $ {{ steps.composite-action.outputs.random-number }}
+                RANDOM_NUMBER: ${{ steps.composite-action.outputs.random-number }}
               run: |
                 echo "echo Random Number is: $RANDOM_NUMBER"
                 shell: bash
