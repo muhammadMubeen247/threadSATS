@@ -17,7 +17,7 @@ jobs:
                 RANDOM_NUMBER: ${{ steps.composite-action.outputs.random-number }}
               run: |
                 echo "echo Random Number is: $RANDOM_NUMBER"
-                shell: bash
+              shell: bash
 
               
 
