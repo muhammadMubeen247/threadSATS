@@ -1,0 +1,26 @@
+name: npmCache
+
+on:
+    workflow_dispatch: 
+
+
+jobs:
+    cacheNPM:
+        name: cacheNpmPackages
+        runs-on: ubuntu-22.04
+        defaults:
+            run:
+                working-directory: backend
+        steps:
+            - uses: actions/checkout@v6
+            #   with:
+            #     sparse-checkout: .backend
+            - uses: actions/setup-node@v7
+              with:
+                node-version: 22
+                cache: npm
+                cache-dependency-path: backend/package-lock.json
+            - name: InstallDependencies
+              run: npm ci --prefer-offline --no-audit
+            - name: ListFirstFewModules
+              run: ls -R node_modules | head
