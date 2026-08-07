@@ -1,0 +1,46 @@
+name: permissions
+
+on:
+    workflow_dispatch: 
+
+jobs:
+    readOnly:
+        runs-on: ubuntu-22.04
+        permissions:
+            pull-requests: 
+                read
+        continue-on-error: 
+                true
+        steps:
+            - uses: actions/checkout@v6
+            - name: listPRs
+              run:
+                gh pr list --limit 5
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - name: modifyPRs
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+              run: |
+                gh pr edit 1 --add-label "documentation"
+            - name: Check for failure
+              if: failure()
+              run: echo "Failure(As Expected) Operation was blocked "
+    read-write:
+        runs-on: ubuntu-22.04
+        permissions:
+            pull-requests: 
+                write
+        steps:
+            - uses: actions/checkout@v6
+            - name: modifyPRs
+              env: 
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                gh pr edit 1 --add-label "documentation"
+            - name: ListPRs
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                gh pr list --limit 5
+
