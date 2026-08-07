@@ -1,0 +1,24 @@
+name: compositeAction
+
+on:
+    workflow_dispatch
+
+jobs:
+    greet:
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v6
+            - id: composite-action
+              uses: ./actions/helloWorld.yaml
+              with:
+                who-to-greet:
+                    "Mubeen"
+            - env: 
+                RANDOM_NUMBER: $ {{ steps.composite-action.outputs.random-number }}
+              run: |
+                echo "echo Random Number is: $RANDOM_NUMBER"
+                shell: bash
+
+              
+
+              
