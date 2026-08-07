@@ -10,7 +10,7 @@ inputs:
 outputs:
   random-number:
     description: 'Stores random Number'
-    value: ${{ steps.random-number-generator.outputs.randomNumber }}
+    value: ${{ steps.random-number-generator.outputs.random-number }}
 
 runs:
   using: composite
