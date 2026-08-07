@@ -9,7 +9,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - id: composite-action
-              uses: ./actions/helloWorld.yaml
+              uses: ./actions/helloWorld
               with:
                 who-to-greet:
                     "Mubeen"
