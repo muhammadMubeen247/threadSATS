@@ -16,4 +16,6 @@ FROM nginx:alpine
 
 COPY --from=build /usr/src/app/dist /usr/share/nginx/html
 
+USER node
+
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,19 @@
+name: linter
+
+on:
+    pull_request: 
+        branches: 
+            - main
+        types:
+            - opened
+            - synchronize
+            - reopened
+
+
+jobs:
+    backendLint:
+        name: Backend Lint Test
+        runs-on: ubuntu-22.04
+        steps:
+            working-directory: 
+            - uses: actions/checkout@v6
