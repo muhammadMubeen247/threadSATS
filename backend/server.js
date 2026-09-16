@@ -47,10 +47,12 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-app.get('/health', (req, res) => {
+const instance = process.env.BACKEND || 'backend';
+
+app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Personas API is running',
+    message: `Personas  API is running on ${instance}`,
     timestamp: new Date().toISOString(),
   });
 });
