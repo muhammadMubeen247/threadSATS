@@ -20,6 +20,7 @@ app.use(cookieParser());
 const allowedOrigins = [
   'http://localhost',
   'http://localhost:5173',
+  `http://frontend:80`,
   process.env.CLIENT_URL
 ]
 

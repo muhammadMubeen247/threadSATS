@@ -2,7 +2,8 @@ import axios from 'axios';
 import { useAuthStore } from '@/store/authStore'; // ✅ add
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  // baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api','http://backend:3000'
+  baseURL: '/api',
   withCredentials: true, // Important: for cookies
   headers: {
     'Content-Type': 'application/json',

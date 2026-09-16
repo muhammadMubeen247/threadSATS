@@ -1,13 +1,24 @@
 services:
 
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_server
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - personas-network
   backend:
     build: 
       context: ./backend
       dockerfile: Dockerfile
     env_file:
       - ./backend/.env
-    ports:
-      - "5000:5000"
     networks:
       - personas-network
   
@@ -15,8 +26,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "80:80"
     networks:
       - personas-network
 
